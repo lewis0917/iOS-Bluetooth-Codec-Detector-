@@ -1,0 +1,10 @@
+Package: com.btcodectweak
+Name: Bluetooth Codec Detector
+Version: 1.0.0
+Architecture: iphoneos-arm64
+Description: Displays a floating pill badge in SpringBoard indicating the active A2DP audio codec.
+Maintainer: Lewis
+Author: Lewis
+Section: Tweaks
+Priority: optional
+Depends: firmware (>= 15.0), ellekit | mobilesubstrate
