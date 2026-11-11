@@ -1,8 +1,0 @@
-{
-    entry = {
-        bundle = BTCodecUI;
-        cell = PSLinkCell;
-        label = "Bluetooth Codec";
-        isController = YES;
-    };
-}
