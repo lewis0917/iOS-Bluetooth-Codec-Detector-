@@ -98,7 +98,7 @@ static void *BTCodec_LogStreamThread(void *__unused arg) {
 
         NSError *storeErr = nil;
         id store = [OSLogStoreClass performSelector:@selector(localStoreAndReturnError:) 
-                                         withObject:(id)(void *)&storeErr];
+                                         withObject:(__bridge id)(void *)&storeErr];
         if (!store) return NULL;
 
         NSPredicate *pred = [NSPredicate predicateWithFormat:@"subsystem == 'com.apple.bluetooth' AND category == 'A2DP'"];
