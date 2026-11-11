@@ -15,7 +15,7 @@ jobs:
         with:
           fetch-depth: 1
 
-      - name: Install build dependencies
+      - name: Install build dependencies & LLVM toolchain
         run: |
           sudo apt-get update -q
           sudo apt-get install -yq \
@@ -27,7 +27,9 @@ jobs:
             git \
             zstd \
             xz-utils \
-            unzip
+            clang \
+            lld \
+            llvm
 
       - name: Install ldid
         run: |
@@ -40,7 +42,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/theos
-          key: theos-${{ runner.os }}-v4
+          key: theos-${{ runner.os }}-v5
 
       - name: Clone Theos
         if: steps.cache-theos.outputs.cache-hit != 'true'
@@ -48,35 +50,33 @@ jobs:
           git clone --recursive --depth=1 \
             https://github.com/theos/theos.git ~/theos
 
-      - name: Cache SDKs & Toolchain
+      - name: Cache SDKs
         id: cache-sdks
         uses: actions/cache@v4
         with:
-          path: |
-            ~/theos/sdks
-            ~/theos/toolchain
-          key: theos-sdks-toolchain-v3
+          path: ~/theos/sdks
+          key: theos-sdks-v2
 
-      - name: Install SDKs & Linux Toolchain
-        if: steps.cache-sdks.outputs.cache-hit != 'true'
+      - name: Setup Official Theos Toolchain Structure
         run: |
-          mkdir -p ~/theos/sdks ~/theos/toolchain
-          
-          # Clone SDKs
-          git clone --depth=1 \
-            https://github.com/theos/sdks.git /tmp/theos-sdks
-          mv /tmp/theos-sdks/*.sdk ~/theos/sdks/
-          rm -rf /tmp/theos-sdks
-          
-          # Download official Linux iOS toolchain (clang + llvm lld)
-          curl -sL https://github.com/theos/toolchain-builder/releases/download/latest/linux.x86_64.tar.zst \
-            -o /tmp/toolchain.tar.zst || \
-          curl -sL https://github.com/theos/expensive-toolchain/releases/download/v0.1/linux.x86_64.tar.zst \
-            -o /tmp/toolchain.tar.zst || true
-            
-          if [ -f /tmp/toolchain.tar.zst ]; then
-            tar --zstd -xf /tmp/toolchain.tar.zst -C ~/theos/toolchain/ || true
+          mkdir -p ~/theos/sdks
+          if [ ! -d ~/theos/sdks/iPhoneOS.sdk ]; then
+            git clone --depth=1 \
+              https://github.com/theos/sdks.git /tmp/theos-sdks
+            mv /tmp/theos-sdks/*.sdk ~/theos/sdks/
+            rm -rf /tmp/theos-sdks
           fi
+          
+          # Force create the exact toolchain directory structure Theos demands
+          mkdir -p ~/theos/toolchain/linux/iphone/bin
+          
+          # Symlink native Ubuntu LLVM/LLD tools directly into Theos's path
+          ln -sf /usr/bin/clang ~/theos/toolchain/linux/iphone/bin/clang
+          ln -sf /usr/bin/clang++ ~/theos/toolchain/linux/iphone/bin/clang++
+          ln -sf /usr/bin/llvm-ar ~/theos/toolchain/linux/iphone/bin/ar
+          ln -sf /usr/bin/llvm-strip ~/theos/toolchain/linux/iphone/bin/strip
+          ln -sf /usr/bin/ld.lld ~/theos/toolchain/linux/iphone/bin/ld
+          ln -sf /usr/bin/lld ~/theos/toolchain/linux/iphone/bin/lld
 
       - name: Build
         env:
