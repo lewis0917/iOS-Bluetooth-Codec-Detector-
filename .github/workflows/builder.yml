@@ -2,8 +2,9 @@ name: Build BTCodecTweak
 
 on:
   push:
-    branches: [ main, master ]
+    branches: [ main ]
   pull_request:
+    branches: [ main ]
 
 jobs:
   build:
@@ -13,31 +14,26 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          fetch-depth: 1
+          submodules: recursive
 
-      - name: Install ldid
-        run: |
-          brew install ldid
+      # theos/actions/setup downloads Theos + an iPhoneOS SDK whose
+      # sdks/iPhoneOSXX.X.sdk/System/Library/PrivateFrameworks/ directory
+      # contains stub TBDs for Preferences, BackBoardServices, etc.
+      # This eliminates both the "search path not found" warning and the
+      # "framework not found" error — even though our Makefile no longer
+      # links Preferences explicitly, having the stubs prevents future
+      # surprises if a new target ever needs a private framework.
+      - name: Setup Theos
+        uses: theos/actions/setup@main
+        with:
+          sdk: 'iPhoneOS16.5'   # pinned — has PrivateFrameworks stubs
 
-      - name: Setup Theos & SDKs
-        run: |
-          rm -rf ~/theos
-          git clone --recursive --depth=1 https://github.com/theos/theos.git ~/theos
-          
-          # Clone SDKs to a temp directory to avoid non-empty path collisions
-          git clone --depth=1 https://github.com/theos/sdks.git /tmp/theos-sdks
-          rm -rf ~/theos/sdks
-          mv /tmp/theos-sdks ~/theos/sdks
-
-      - name: Build Tweak
-        env:
-          THEOS: /Users/runner/theos
-        run: |
-          make package FINALPACKAGE=1 -j$(sysctl -n hw.ncpu)
+      - name: Build package
+        run: make package FINALPACKAGE=1
 
       - name: Upload .deb
         uses: actions/upload-artifact@v4
         with:
-          name: BTCodecTweak-deb
+          name: BTCodecTweak-${{ github.sha }}
           path: packages/*.deb
           if-no-files-found: error
