@@ -10,6 +10,7 @@ typedef NS_ENUM(uint8_t, BTCodecID) {
     BTCodecID_SBC       = 0x00,
     BTCodecID_MPEG12    = 0x01,
     BTCodecID_AAC       = 0x02,
+    BTCodecID_ATRAC     = 0x04,
     BTCodecID_VendorExt = 0xFF,
     BTCodecID_Unknown   = 0xFE,
 };
