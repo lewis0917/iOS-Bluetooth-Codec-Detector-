@@ -1,46 +1,78 @@
-name: Build Tweak
+name: Build BTCodecTweak
 
 on:
   push:
     branches: [ main, master ]
+  pull_request:
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    container:
-      image: alpine:latest
 
     steps:
-      - name: Checkout Repository
+      - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
 
-      - name: Install Dependencies
+      - name: Install build dependencies
         run: |
-          apk update
-          apk add --no-cache bash curl git make sudo build-base perl sed findutils diffutils libarchive-tools unzip
+          sudo apt-get update -q
+          sudo apt-get install -yq \
+            fakeroot \
+            dpkg-dev \
+            libplist-utils \
+            curl \
+            perl \
+            git
 
-      - name: Setup Theos & SDKs
+      - name: Install ldid
         run: |
-          export THEOS=/opt/theos
-          git clone --recursive https://github.com/theos/theos.git $THEOS
-          curl -LO https://raw.githubusercontent.com/theos/theos/master/bin/install-theos
-          bash install-theos || true
+          curl -sL https://github.com/ProcursusTeam/ldid/releases/download/v2.1.5-procursus7/ldid_linux_x86_64 \
+            -o /usr/local/bin/ldid
+          chmod +x /usr/local/bin/ldid
 
-          # Download and extract the official patched iOS SDKs into $THEOS/sdks
-          mkdir -p $THEOS/sdks
-          curl -L -o sdks.zip https://github.com/theos/sdks/archive/master.zip
-          unzip sdks.zip -d /tmp
-          mv /tmp/sdks-master/*.sdk $THEOS/sdks/
-          rm -rf sdks.zip /tmp/sdks-master
+      - name: Cache Theos
+        id: cache-theos
+        uses: actions/cache@v4
+        with:
+          path: ~/theos
+          key: theos-${{ runner.os }}-v2
 
-      - name: Build Package
+      - name: Clone Theos
+        if: steps.cache-theos.outputs.cache-hit != 'true'
         run: |
-          export THEOS=/opt/theos
-          export PATH="/opt/theos/toolchain/linux/usr/bin:$PATH"
-          make package
+          git clone --recursive --depth=1 \
+            https://github.com/theos/theos.git ~/theos
 
-      - name: Upload Artifact
+      - name: Cache SDKs
+        id: cache-sdks
+        uses: actions/cache@v4
+        with:
+          path: ~/theos/sdks
+          key: theos-sdks-v1
+
+      - name: Install SDKs & Toolchain
+        if: steps.cache-sdks.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p ~/theos/sdks
+          git clone --depth=1 \
+            https://github.com/theos/sdks.git /tmp/theos-sdks
+          mv /tmp/theos-sdks/*.sdk ~/theos/sdks/
+          rm -rf /tmp/theos-sdks
+          
+          # Install the Linux-to-iOS compiler toolchain required for clang
+          bash ~/theos/bin/install-theos-toolchain.sh || true
+
+      - name: Build
+        env:
+          THEOS: /home/runner/theos
+        run: |
+          make package FINALPACKAGE=1 -j$(nproc)
+
+      - name: Upload .deb
         uses: actions/upload-artifact@v4
         with:
-          name: com.btcodectweak.deb
+          name: BTCodecTweak-deb
           path: packages/*.deb
+          if-no-files-found: error
