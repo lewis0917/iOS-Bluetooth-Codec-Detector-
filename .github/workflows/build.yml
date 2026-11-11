@@ -17,14 +17,21 @@ jobs:
       - name: Install Dependencies
         run: |
           apk update
-          apk add --no-cache bash curl git make sudo build-base perl sed findutils diffutils libarchive-tools
+          apk add --no-cache bash curl git make sudo build-base perl sed findutils diffutils libarchive-tools unzip
 
-      - name: Setup Theos
+      - name: Setup Theos & SDKs
         run: |
           export THEOS=/opt/theos
           git clone --recursive https://github.com/theos/theos.git $THEOS
           curl -LO https://raw.githubusercontent.com/theos/theos/master/bin/install-theos
           bash install-theos || true
+
+          # Download and extract the official patched iOS SDKs into $THEOS/sdks
+          mkdir -p $THEOS/sdks
+          curl -L -o sdks.zip https://github.com/theos/sdks/archive/master.zip
+          unzip sdks.zip -d /tmp
+          mv /tmp/sdks-master/*.sdk $THEOS/sdks/
+          rm -rf sdks.zip /tmp/sdks-master
 
       - name: Build Package
         run: |
