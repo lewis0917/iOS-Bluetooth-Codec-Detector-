@@ -26,7 +26,8 @@ jobs:
             perl \
             git \
             zstd \
-            xz-utils
+            xz-utils \
+            unzip
 
       - name: Install ldid
         run: |
@@ -39,7 +40,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/theos
-          key: theos-${{ runner.os }}-v3
+          key: theos-${{ runner.os }}-v4
 
       - name: Clone Theos
         if: steps.cache-theos.outputs.cache-hit != 'true'
@@ -54,19 +55,28 @@ jobs:
           path: |
             ~/theos/sdks
             ~/theos/toolchain
-          key: theos-sdks-toolchain-v2
+          key: theos-sdks-toolchain-v3
 
-      - name: Install SDKs & Official Theos Toolchain
+      - name: Install SDKs & Linux Toolchain
         if: steps.cache-sdks.outputs.cache-hit != 'true'
         run: |
-          mkdir -p ~/theos/sdks
+          mkdir -p ~/theos/sdks ~/theos/toolchain
+          
+          # Clone SDKs
           git clone --depth=1 \
             https://github.com/theos/sdks.git /tmp/theos-sdks
           mv /tmp/theos-sdks/*.sdk ~/theos/sdks/
           rm -rf /tmp/theos-sdks
           
-          # Install the official cross-compilation toolchain (clang + lld for iOS)
-          bash ~/theos/bin/install-theos-toolchain.sh
+          # Download official Linux iOS toolchain (clang + llvm lld)
+          curl -sL https://github.com/theos/toolchain-builder/releases/download/latest/linux.x86_64.tar.zst \
+            -o /tmp/toolchain.tar.zst || \
+          curl -sL https://github.com/theos/expensive-toolchain/releases/download/v0.1/linux.x86_64.tar.zst \
+            -o /tmp/toolchain.tar.zst || true
+            
+          if [ -f /tmp/toolchain.tar.zst ]; then
+            tar --zstd -xf /tmp/toolchain.tar.zst -C ~/theos/toolchain/ || true
+          fi
 
       - name: Build
         env:
