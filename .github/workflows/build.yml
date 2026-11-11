@@ -7,7 +7,7 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: macos-latest
 
     steps:
       - name: Checkout
@@ -15,74 +15,20 @@ jobs:
         with:
           fetch-depth: 1
 
-      - name: Install build dependencies & LLVM toolchain
-        run: |
-          sudo apt-get update -q
-          sudo apt-get install -yq \
-            fakeroot \
-            dpkg-dev \
-            libplist-utils \
-            curl \
-            perl \
-            git \
-            zstd \
-            xz-utils \
-            clang \
-            lld \
-            llvm
-
       - name: Install ldid
         run: |
-          curl -sL https://github.com/ProcursusTeam/ldid/releases/download/v2.1.5-procursus7/ldid_linux_x86_64 \
-            -o /usr/local/bin/ldid
-          chmod +x /usr/local/bin/ldid
+          brew install ldid
 
-      - name: Cache Theos
-        id: cache-theos
-        uses: actions/cache@v4
-        with:
-          path: ~/theos
-          key: theos-${{ runner.os }}-v5
-
-      - name: Clone Theos
-        if: steps.cache-theos.outputs.cache-hit != 'true'
+      - name: Setup Theos & SDKs
         run: |
-          git clone --recursive --depth=1 \
-            https://github.com/theos/theos.git ~/theos
+          git clone --recursive --depth=1 https://github.com/theos/theos.git ~/theos
+          git clone --depth=1 https://github.com/theos/sdks.git ~/theos/sdks
 
-      - name: Cache SDKs
-        id: cache-sdks
-        uses: actions/cache@v4
-        with:
-          path: ~/theos/sdks
-          key: theos-sdks-v2
-
-      - name: Setup Official Theos Toolchain Structure
-        run: |
-          mkdir -p ~/theos/sdks
-          if [ ! -d ~/theos/sdks/iPhoneOS.sdk ]; then
-            git clone --depth=1 \
-              https://github.com/theos/sdks.git /tmp/theos-sdks
-            mv /tmp/theos-sdks/*.sdk ~/theos/sdks/
-            rm -rf /tmp/theos-sdks
-          fi
-          
-          # Force create the exact toolchain directory structure Theos demands
-          mkdir -p ~/theos/toolchain/linux/iphone/bin
-          
-          # Symlink native Ubuntu LLVM/LLD tools directly into Theos's path
-          ln -sf /usr/bin/clang ~/theos/toolchain/linux/iphone/bin/clang
-          ln -sf /usr/bin/clang++ ~/theos/toolchain/linux/iphone/bin/clang++
-          ln -sf /usr/bin/llvm-ar ~/theos/toolchain/linux/iphone/bin/ar
-          ln -sf /usr/bin/llvm-strip ~/theos/toolchain/linux/iphone/bin/strip
-          ln -sf /usr/bin/ld.lld ~/theos/toolchain/linux/iphone/bin/ld
-          ln -sf /usr/bin/lld ~/theos/toolchain/linux/iphone/bin/lld
-
-      - name: Build
+      - name: Build Tweak
         env:
-          THEOS: /home/runner/theos
+          THEOS: /Users/runner/theos
         run: |
-          make package FINALPACKAGE=1 -j$(nproc)
+          make package FINALPACKAGE=1 -j$(sysctl -n hw.ncpu)
 
       - name: Upload .deb
         uses: actions/upload-artifact@v4
