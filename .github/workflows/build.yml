@@ -23,7 +23,11 @@ jobs:
         run: |
           rm -rf ~/theos
           git clone --recursive --depth=1 https://github.com/theos/theos.git ~/theos
-          git clone --depth=1 https://github.com/theos/sdks.git ~/theos/sdks
+          
+          # Clone SDKs to a temp directory to avoid non-empty path collisions
+          git clone --depth=1 https://github.com/theos/sdks.git /tmp/theos-sdks
+          rm -rf ~/theos/sdks
+          mv /tmp/theos-sdks ~/theos/sdks
 
       - name: Build Tweak
         env:
