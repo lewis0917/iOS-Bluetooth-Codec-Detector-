@@ -14,7 +14,7 @@ BTCodecDaemon_CFLAGS = -fobjc-arc
 BUNDLE_NAME = BTCodecUI
 BTCodecUI_FILES = BTCodecRootListController.m
 BTCodecUI_INSTALL_PATH = /Library/PreferenceBundles
-BTCodecUI_PRIVATE_FRAMEWORKS = Preferences
+BTCodecUI_LDFLAGS = -framework Preferences
 BTCodecUI_CFLAGS = -fobjc-arc
 
 include $(THEOS_MAKE_PATH)/tweak.mk
