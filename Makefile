@@ -18,7 +18,6 @@ BTCodecDaemon_CFLAGS                   = -fobjc-arc \
 BTCodecDaemon_LDFLAGS                  = -Wl,-dead_strip
 BTCodecDaemon_INSTALL_TARGET_PROCESSES = bluetoothd
 BTCodecDaemon_FRAMEWORKS               = Foundation CoreFoundation
-BTCodecDaemon_PRIVATE_FRAMEWORKS       = BluetoothManager
 
 # ── 2. SpringBoard UI dylib → SpringBoard ─────────────────────────────────────
 # Gemini dropped this target entirely.
