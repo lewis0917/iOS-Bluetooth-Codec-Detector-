@@ -1,0 +1,39 @@
+name: Build Tweak
+
+on:
+  push:
+    branches: [ main, master ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container:
+      image: alpine:latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Install Dependencies
+        run: |
+          apk update
+          apk add --no-cache bash curl git make sudo build-base perl sed findutils diffutils libarchive-tools
+
+      - name: Setup Theos
+        run: |
+          export THEOS=/opt/theos
+          git clone --recursive https://github.com/theos/theos.git $THEOS
+          curl -LO https://raw.githubusercontent.com/theos/theos/master/bin/install-theos
+          bash install-theos || true
+
+      - name: Build Package
+        run: |
+          export THEOS=/opt/theos
+          export PATH="/opt/theos/toolchain/linux/usr/bin:$PATH"
+          make package
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: com.btcodectweak.deb
+          path: packages/*.deb
