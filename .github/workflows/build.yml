@@ -21,6 +21,7 @@ jobs:
 
       - name: Setup Theos & SDKs
         run: |
+          rm -rf ~/theos
           git clone --recursive --depth=1 https://github.com/theos/theos.git ~/theos
           git clone --depth=1 https://github.com/theos/sdks.git ~/theos/sdks
 
