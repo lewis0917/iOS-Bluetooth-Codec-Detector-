@@ -8,14 +8,15 @@ TWEAK_NAME = BTCodecDaemon
 BTCodecDaemon_FILES = BTCodecHook.x
 BTCodecDaemon_CFLAGS = -fobjc-arc
 
-LIBRARY_NAME = BTCodecUI
-BTCodecUI_FILES = BTCodecRootListController.m PreferencesStub.m
-BTCodecUI_INSTALL_PATH = /Library/PreferenceBundles/BTCodecUI.bundle
-BTCodecUI_CFLAGS = -fobjc-arc
-BTCodecUI_LDFLAGS = -F$(THEOS)/sdk/iPhoneOS.sdk/System/Library/PrivateFrameworks -umbrella Preferences
+BUNDLE_NAME = BTCodecUI
+BTCodecUI_FILES = BTCodecRootListController.m
+BTCodecUI_INSTALL_PATH = /Library/PreferenceBundles
+BTCodecUI_PRIVATE_FRAMEWORKS = Preferences
+BTCodecUI_CFLAGS = -fobjc-arc -I./headers
+BTCodecUI_LDFLAGS = -F$(THEOS)/sdk/iPhoneOS.sdk/System/Library/PrivateFrameworks
 
 include $(THEOS_MAKE_PATH)/tweak.mk
-include $(THEOS_MAKE_PATH)/library.mk
+include $(THEOS_MAKE_PATH)/bundle.mk
 
 after-install::
 	install.exec "killall -9 bluetoothd SpringBoard"
