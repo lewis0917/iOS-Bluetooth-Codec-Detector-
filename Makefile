@@ -7,7 +7,6 @@ TWEAK_NAME = BTCodecDaemon BTCodecUI
 
 # Daemon Hook
 BTCodecDaemon_FILES = BTCodecHook.x
-BTCodecDaemon_PRIVATE_FRAMEWORKS = BluetoothManager
 BTCodecDaemon_CFLAGS = -fobjc-arc -I$(THEOS_PROJECT_DIR)
 
 # Settings UI
