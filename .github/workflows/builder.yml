@@ -5,9 +5,6 @@ on:
     branches: [ main ]
   pull_request:
 
-env:
-  THEOS: ${{ github.workspace }}/theos
-
 jobs:
   build:
     runs-on: macos-latest
@@ -19,15 +16,10 @@ jobs:
         run: |
           brew install ldid dpkg
 
-      - name: Install Theos
-        run: |
-          git clone --recursive https://github.com/theos/theos.git $THEOS
-
-      - name: Download SDK
-        run: |
-          mkdir -p $THEOS/sdks
-          curl -L https://github.com/theos/sdks/releases/download/2023-09-01/iPhoneOS16.5.sdk.tar.xz \
-            | tar -xJf - -C $THEOS/sdks
+      - name: Setup Theos & SDK
+        uses: theos/actions/setup@main
+        with:
+          sdk: 'iPhoneOS16.5'
 
       - name: Build
         run: make package FINALPACKAGE=1
