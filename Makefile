@@ -8,16 +8,15 @@ TWEAK_NAME = BTCodecDaemon
 BTCodecDaemon_FILES = BTCodecHook.x
 BTCodecDaemon_CFLAGS = -fobjc-arc
 
-BUNDLE_NAME = BTCodecUI
+# Compile the preference panel as a library to bypass bundle.mk SDK checks
+LIBRARY_NAME = BTCodecUI
 BTCodecUI_FILES = BTCodecRootListController.m
-BTCodecUI_INSTALL_PATH = /Library/PreferenceBundles
+BTCodecUI_INSTALL_PATH = /Library/PreferenceBundles/BTCodecUI.bundle
 BTCodecUI_CFLAGS = -fobjc-arc
-
-# Use the standard header search path for private frameworks rather than manual linker flags
-BTCodecUI_EXTRA_FRAMEWORKS = Preferences
+BTCodecUI_LDFLAGS = -umbrella Preferences
 
 include $(THEOS_MAKE_PATH)/tweak.mk
-include $(THEOS_MAKE_PATH)/bundle.mk
+include $(THEOS_MAKE_PATH)/library.mk
 
 after-install::
 	install.exec "killall -9 bluetoothd SpringBoard"
