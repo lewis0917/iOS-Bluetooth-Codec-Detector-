@@ -97,7 +97,8 @@ static void *BTCodec_LogStreamThread(void *__unused arg) {
         if (!OSLogStoreClass) return NULL;
 
         NSError *storeErr = nil;
-        id store = [OSLogStoreClass performSelector:@selector(localStoreAndReturnError:) withObject:(id)&storeErr];
+        id store = [OSLogStoreClass performSelector:@selector(localStoreAndReturnError:) 
+                                         withObject:(id)(void *)&storeErr];
         if (!store) return NULL;
 
         NSPredicate *pred = [NSPredicate predicateWithFormat:@"subsystem == 'com.apple.bluetooth' AND category == 'A2DP'"];
@@ -127,7 +128,12 @@ static void *BTCodec_LogStreamThread(void *__unused arg) {
                     for (id entry in enumerator) {
                         if (!sLogThreadRunning) break;
                         if ([entry respondsToSelector:msgSel]) {
-                            BTCodec_ParseOSLogEntry([entry performSelector:msgSel]);
+                            #pragma clang diagnostic push
+                            #pragma clang diagnostic ignored "-Warc-performSelector-leaks"
+                            NSString *msg = [entry performSelector:msgSel];
+                            #pragma clang diagnostic pop
+
+                            BTCodec_ParseOSLogEntry(msg);
                         }
                     }
                 }
