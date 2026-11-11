@@ -26,7 +26,7 @@ jobs:
       - name: Download SDK
         run: |
           mkdir -p $THEOS/sdks
-          curl -L https://github.com/theos/sdks/releases/latest/download/iPhoneOS16.5.sdk.tar.xz \
+          curl -L https://github.com/theos/sdks/releases/download/2023-09-01/iPhoneOS16.5.sdk.tar.xz \
             | tar -xJf - -C $THEOS/sdks
 
       - name: Build
