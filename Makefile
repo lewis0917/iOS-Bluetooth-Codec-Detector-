@@ -14,8 +14,9 @@ BTCodecDaemon_CFLAGS = -fobjc-arc
 BUNDLE_NAME = BTCodecUI
 BTCodecUI_FILES = BTCodecRootListController.m
 BTCodecUI_INSTALL_PATH = /Library/PreferenceBundles
-BTCodecUI_LDFLAGS = -framework Preferences
+BTCodecUI_PRIVATE_FRAMEWORKS = Preferences
 BTCodecUI_CFLAGS = -fobjc-arc
+BTCodecUI_LDFLAGS = -Wl,-F$(THEOS)/sdk/iPhoneOS.sdk/System/Library/PrivateFrameworks
 
 include $(THEOS_MAKE_PATH)/tweak.mk
 include $(THEOS_MAKE_PATH)/bundle.mk
