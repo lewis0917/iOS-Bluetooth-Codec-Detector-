@@ -5,18 +5,16 @@ INSTALL_TARGET_PROCESSES = bluetoothd SpringBoard
 include $(THEOS)/makefiles/common.mk
 
 TWEAK_NAME = BTCodecDaemon
-
-# Daemon Hook
 BTCodecDaemon_FILES = BTCodecHook.x
 BTCodecDaemon_CFLAGS = -fobjc-arc
 
-# Settings UI Bundle
 BUNDLE_NAME = BTCodecUI
 BTCodecUI_FILES = BTCodecRootListController.m
 BTCodecUI_INSTALL_PATH = /Library/PreferenceBundles
-BTCodecUI_PRIVATE_FRAMEWORKS = Preferences
 BTCodecUI_CFLAGS = -fobjc-arc
-BTCodecUI_LDFLAGS = -Wl,-F$(THEOS)/sdk/iPhoneOS.sdk/System/Library/PrivateFrameworks
+
+# Use the standard header search path for private frameworks rather than manual linker flags
+BTCodecUI_EXTRA_FRAMEWORKS = Preferences
 
 include $(THEOS_MAKE_PATH)/tweak.mk
 include $(THEOS_MAKE_PATH)/bundle.mk
