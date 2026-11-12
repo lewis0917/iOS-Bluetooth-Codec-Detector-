@@ -14,8 +14,6 @@
 #import <CoreFoundation/CoreFoundation.h>
 #import <notify.h>
 
-// Pre-built class stubs from headers/Preferences/ — resolved at runtime
-// by PreferenceLoader; no -framework Preferences link needed.
 #import <Preferences/PSListController.h>
 #import <Preferences/PSSpecifier.h>
 
@@ -28,11 +26,15 @@ static NSString *const kPrefsChangedPost = @"com.btcodectweak.prefschanged";
 
 // ── Controller ─────────────────────────────────────────────────────────────────
 
-@interface BTCodecRootListController : PSListController
+@interface BTCodecRootListController : PSListController {
+    PSSpecifier *_codecStatusSpecifier;
+}
 @property (nonatomic, strong) PSSpecifier *codecStatusSpecifier;
 @end
 
 @implementation BTCodecRootListController
+
+@synthesize codecStatusSpecifier = _codecStatusSpecifier;
 
 // ── Specifier construction ─────────────────────────────────────────────────────
 
@@ -137,7 +139,7 @@ static NSString *const kPrefsChangedPost = @"com.btcodectweak.prefschanged";
     // Refresh the live-status cells each time the pane becomes visible —
     // the codec state may have changed since last open.
     if (self.codecStatusSpecifier) {
-        [self reloadSpecifier:self.codecStatusSpecifier];
+        [self reloadSpecifier:self.codecStatusSpecifier animated:NO];
     }
 }
 
