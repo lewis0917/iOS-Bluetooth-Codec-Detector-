@@ -19,18 +19,19 @@ BTCodecDaemon_LDFLAGS                   = -Wl,-undefined,dynamic_lookup \
                                           -Wl,-dead_strip
 BTCodecDaemon_INSTALL_TARGET_PROCESSES  = bluetoothd
 BTCodecDaemon_FRAMEWORKS                = Foundation CoreFoundation
+BTCodecDaemon_PRIVATE_FRAMEWORKS        = BluetoothManager
 
-# ── 2. SpringBoard UI dylib → SpringBoard ─────────────────────────────────────
-# Gemini dropped this target entirely.
+# ── 2. SpringBoard UI dylib — injected into SpringBoard ───────────────────────
 TWEAK_NAME += BTCodecSB
 
-BTCodecSB_FILES                    = Tweak.x
-BTCodecSB_CFLAGS                   = -fobjc-arc \
-                                     -fvisibility=hidden \
-                                     -I$(THEOS_PROJECT_DIR)
-BTCodecSB_LDFLAGS                  = -Wl,-dead_strip
-BTCodecSB_INSTALL_TARGET_PROCESSES = SpringBoard
-BTCodecSB_FRAMEWORKS               = Foundation UIKit CoreFoundation AVFoundation
+BTCodecSB_FILES                     = Tweak.x
+BTCodecSB_CFLAGS                    = -fobjc-arc \
+                                      -fvisibility=hidden \
+                                      -I$(THEOS_PROJECT_DIR)
+BTCodecSB_LDFLAGS                   = -Wl,-undefined,dynamic_lookup \
+                                      -Wl,-dead_strip
+BTCodecSB_INSTALL_TARGET_PROCESSES  = SpringBoard
+BTCodecSB_FRAMEWORKS                = Foundation UIKit CoreFoundation AVFoundation
 
 # ── 3. PreferenceLoader bundle ────────────────────────────────────────────────
 BUNDLE_NAME = BTCodecUI
@@ -40,13 +41,6 @@ BTCodecUI_CFLAGS       = -fobjc-arc \
                          -fvisibility=hidden \
                          -I$(THEOS_PROJECT_DIR) \
                          -I$(THEOS_PROJECT_DIR)/headers
-
-# FIX 1: -undefined dynamic_lookup instead of -F<broken path> + PRIVATE_FRAMEWORKS.
-#         PreferenceLoader maps Preferences.framework into Settings.app before
-#         your bundle loads; no stub required at link time.
-# FIX 2: /Library/PreferenceLoader/Preferences — not /Library/PreferenceBundles.
-#         The latter is Apple's system directory; PreferenceLoader never reads it
-#         for third-party panes.
 BTCodecUI_LDFLAGS      = -Wl,-undefined,dynamic_lookup \
                          -Wl,-dead_strip
 BTCodecUI_INSTALL_PATH = /Library/PreferenceLoader/Preferences
@@ -55,8 +49,5 @@ BTCodecUI_FRAMEWORKS   = Foundation UIKit CoreFoundation
 include $(THEOS)/makefiles/tweak.mk
 include $(THEOS)/makefiles/bundle.mk
 
-# ── Post-install ──────────────────────────────────────────────────────────────
-# FIX: killall without -9 lets both processes clean up and restart properly.
-#      sbreload handles SpringBoard on rootless more gracefully than raw killall.
 after-install::
 	install.exec "killall bluetoothd; sbreload"
