@@ -2,7 +2,7 @@
     entry = {
         bundle = BTCodecUI;
         cell = PSLinkCell;
-        label = "Bluetooth Codec";
-        isController = YES;
+        isController = 1;
+        label = "BT Codec Tweak";
     };
 }
