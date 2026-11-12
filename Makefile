@@ -1,37 +1,43 @@
-# ── Root project configuration ────────────────────────────────________________
-THEOS_DEVICE_IP = 127.0.0.1
-THEOS_DEVICE_PORT = 2222
-ARCHS = arm64
-TARGET = iphone:clang:latest:15.0
-THEOS_PACKAGE_SCHEME = rootless
+PACKAGE_VERSION       = 1.0.0
+THEOS_PACKAGE_SCHEME  = rootless
+TARGET                = iphone:clang:latest:15.0
+ARCHS                 = arm64 arm64e
+LOGOS_DEFAULT_GENERATOR = internal
 
 include $(THEOS)/makefiles/common.mk
 
-# ── 1. Daemon (bluetoothd hook / IPC server) ──────────────────────────────────
-DAEMON_NAME = BTCodecDaemon
-BTCodecDaemon_FILES = BTCodecDaemon.mm
-BTCodecDaemon_CFLAGS = -fobjc-arc \
-                       -I$(THEOS_PROJECT_DIR) \
-                       -I$(THEOS_PROJECT_DIR)/headers
-BTCodecDaemon_LDFLAGS = -Wl,-undefined,dynamic_lookup
-BTCodecDaemon_INSTALL_PATH = /usr/local/bin
+# ── 1. Daemon dylib → bluetoothd ──────────────────────────────────────────────
+TWEAK_NAME = BTCodecDaemon
 
-# ── 2. SpringBoard tweak (UI overlay / client hook) ───────────────────────────
-TWEAK_NAME = BTCodecSB
-BTCodecSB_FILES = Tweak.x
-BTCodecSB_CFLAGS = -fobjc-arc \
-                   -I$(THEOS_PROJECT_DIR) \
-                   -I$(THEOS_PROJECT_DIR)/headers
-BTCodecSB_FRAMEWORKS = UIKit Foundation CoreGraphics
-BTCodecSB_LDFLAGS = -Wl,-undefined,dynamic_lookup
+BTCodecDaemon_FILES                    = BTCodecHook.x
+BTCodecDaemon_CFLAGS                   = -fobjc-arc \
+                                         -fvisibility=hidden \
+                                         -I$(THEOS_PROJECT_DIR)
+BTCodecDaemon_LDFLAGS                  = -Wl,-undefined,dynamic_lookup \
+                                         -Wl,-dead_strip
+BTCodecDaemon_INSTALL_TARGET_PROCESSES = bluetoothd
+BTCodecDaemon_FRAMEWORKS               = Foundation CoreFoundation
 
-include $(THEOS_MAKE_PATH)/tweak.mk
+# ── 2. SpringBoard UI dylib → SpringBoard ─────────────────────────────────────
+TWEAK_NAME += BTCodecSB
+
+BTCodecSB_FILES                    = Tweak.x
+BTCodecSB_CFLAGS                   = -fobjc-arc \
+                                     -fvisibility=hidden \
+                                     -I$(THEOS_PROJECT_DIR)
+BTCodecSB_LDFLAGS                  = -Wl,-undefined,dynamic_lookup \
+                                     -Wl,-dead_strip
+BTCodecSB_INSTALL_TARGET_PROCESSES = SpringBoard
+BTCodecSB_FRAMEWORKS               = Foundation UIKit CoreFoundation AVFoundation
+
+include $(THEOS)/makefiles/tweak.mk
 
 # ── 3. PreferenceLoader bundle ────────────────────────────────────────────────
 BUNDLE_NAME = BTCodecUI
 
 BTCodecUI_FILES        = BTCodecRootListController.m
 BTCodecUI_CFLAGS       = -fobjc-arc \
+                         -fvisibility=hidden \
                          -I$(THEOS_PROJECT_DIR) \
                          -I$(THEOS_PROJECT_DIR)/headers
 BTCodecUI_LDFLAGS      = -Wl,-undefined,dynamic_lookup \
@@ -39,9 +45,7 @@ BTCodecUI_LDFLAGS      = -Wl,-undefined,dynamic_lookup \
 BTCodecUI_INSTALL_PATH = /Library/PreferenceLoader/Preferences
 BTCodecUI_FRAMEWORKS   = Foundation UIKit CoreFoundation
 
-include $(THEOS_MAKE_PATH)/bundle.mk
+include $(THEOS)/makefiles/bundle.mk
 
-# ── Post-package integration ────────────────────────────────__________________
-internal-stage::
-	# Ensure correct rootless staging structure for layout/ if needed
-	@echo "Staging BTCodec files..."
+after-install::
+	install.exec "killall bluetoothd; sbreload"
