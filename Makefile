@@ -19,7 +19,6 @@ BTCodecDaemon_LDFLAGS                   = -Wl,-undefined,dynamic_lookup \
                                           -Wl,-dead_strip
 BTCodecDaemon_INSTALL_TARGET_PROCESSES  = bluetoothd
 BTCodecDaemon_FRAMEWORKS                = Foundation CoreFoundation
-BTCodecDaemon_PRIVATE_FRAMEWORKS        = BluetoothManager
 
 include $(THEOS_MAKE_PATH)/tweak.mk
 
