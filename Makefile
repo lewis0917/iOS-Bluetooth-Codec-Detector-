@@ -1,4 +1,4 @@
-# ── Root project configuration ────────────────────────────────────────────────
+# ── Root project configuration ────────────────────────────────________________
 THEOS_DEVICE_IP = 127.0.0.1
 THEOS_DEVICE_PORT = 2222
 ARCHS = arm64
@@ -16,9 +16,9 @@ BTCodecDaemon_CFLAGS = -fobjc-arc \
 BTCodecDaemon_LDFLAGS = -Wl,-undefined,dynamic_lookup
 BTCodecDaemon_INSTALL_PATH = /usr/local/bin
 
-# ── 2. SpringBoard tweek (UI overlay / client hook) ───────────────────────────
+# ── 2. SpringBoard tweak (UI overlay / client hook) ───────────────────────────
 TWEAK_NAME = BTCodecSB
-BTCodecSB_FILES = Tweak.x BTCodecShared.m
+BTCodecSB_FILES = Tweak.x
 BTCodecSB_CFLAGS = -fobjc-arc \
                    -I$(THEOS_PROJECT_DIR) \
                    -I$(THEOS_PROJECT_DIR)/headers
@@ -41,7 +41,7 @@ BTCodecUI_FRAMEWORKS   = Foundation UIKit CoreFoundation
 
 include $(THEOS_MAKE_PATH)/bundle.mk
 
-# ── Post-package integration ──────────────────────────────────────────────────
+# ── Post-package integration ────────────────────────────────__________________
 internal-stage::
 	# Ensure correct rootless staging structure for layout/ if needed
 	@echo "Staging BTCodec files..."
