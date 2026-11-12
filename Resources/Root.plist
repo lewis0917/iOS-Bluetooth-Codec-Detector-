@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>items</key>
+    <array>
+        <!-- Section Header -->
+        <dict>
+            <key>cell</key>
+            <string>PSGroupCell</string>
+            <key>label</key>
+            <string>BT Codec Tweak Settings</string>
+        </dict>
+
+        <!-- Master Switch -->
+        <dict>
+            <key>cell</key>
+            <string>PSSwitchCell</string>
+            <key>default</key>
+            <true/>
+            <key>defaults</key>
+            <string>com.btcodectweak</string>
+            <key>key</key>
+            <string>enabled</string>
+            <key>label</key>
+            <string>Enable Tweak</string>
+        </dict>
+
+        <!-- Secondary Option Switch -->
+        <dict>
+            <key>cell</key>
+            <string>PSSwitchCell</string>
+            <key>default</key>
+            <true/>
+            <key>defaults</key>
+            <string>com.btcodectweak</string>
+            <key>key</key>
+            <string>alertOnSBC</string>
+            <key>label</key>
+            <string>Highlight SBC Fallbacks</string>
+        </dict>
+        
+        <dict>
+            <key>cell</key>
+            <string>PSGroupCell</string>
+            <key>footerText</key>
+            <string>Displays live active audio codec and bitrate information in SpringBoard.</string>
+        </dict>
+    </array>
+    <key>title</key>
+    <string>BT Codec</string>
+</dict>
+</plist>
