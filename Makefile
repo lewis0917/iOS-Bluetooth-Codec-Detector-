@@ -9,7 +9,7 @@ LOGOS_DEFAULT_GENERATOR = internal
 include $(THEOS)/makefiles/common.mk
 
 # ── 1. Daemon dylib — injected into bluetoothd ────────────────────────────────
-TWEAK_NAME += BTCodecDaemon
+TWEAK_NAME = BTCodecDaemon
 
 BTCodecDaemon_FILES                     = BTCodecHook.x
 BTCodecDaemon_CFLAGS                    = -fobjc-arc \
@@ -21,8 +21,10 @@ BTCodecDaemon_INSTALL_TARGET_PROCESSES  = bluetoothd
 BTCodecDaemon_FRAMEWORKS                = Foundation CoreFoundation
 BTCodecDaemon_PRIVATE_FRAMEWORKS        = BluetoothManager
 
+include $(THEOS_MAKE_PATH)/tweak.mk
+
 # ── 2. SpringBoard UI dylib — injected into SpringBoard ───────────────────────
-TWEAK_NAME += BTCodecSB
+TWEAK_NAME = BTCodecSB
 
 BTCodecSB_FILES                     = Tweak.x
 BTCodecSB_CFLAGS                    = -fobjc-arc \
@@ -32,6 +34,8 @@ BTCodecSB_LDFLAGS                   = -Wl,-undefined,dynamic_lookup \
                                       -Wl,-dead_strip
 BTCodecSB_INSTALL_TARGET_PROCESSES  = SpringBoard
 BTCodecSB_FRAMEWORKS                = Foundation UIKit CoreFoundation AVFoundation
+
+include $(THEOS_MAKE_PATH)/tweak.mk
 
 # ── 3. PreferenceLoader bundle ────────────────────────────────────────────────
 BUNDLE_NAME = BTCodecUI
@@ -46,8 +50,7 @@ BTCodecUI_LDFLAGS      = -Wl,-undefined,dynamic_lookup \
 BTCodecUI_INSTALL_PATH = /Library/PreferenceLoader/Preferences
 BTCodecUI_FRAMEWORKS   = Foundation UIKit CoreFoundation
 
-include $(THEOS)/makefiles/tweak.mk
-include $(THEOS)/makefiles/bundle.mk
+include $(THEOS_MAKE_PATH)/bundle.mk
 
 after-install::
 	install.exec "killall bluetoothd; sbreload"
