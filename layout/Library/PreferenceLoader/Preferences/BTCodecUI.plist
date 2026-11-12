@@ -2,6 +2,7 @@
     entry = {
         bundle = BTCodecUI;
         cell = PSLinkCell;
+        detail = BTCodecRootListController;
         isController = 1;
         label = "BT Codec Tweak";
     };
