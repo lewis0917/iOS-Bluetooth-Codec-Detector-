@@ -37,15 +37,13 @@ include $(THEOS)/makefiles/tweak.mk
 # ── 3. PreferenceLoader bundle ────────────────────────────────────────────────
 BUNDLE_NAME = BTCodecUI
 
-BTCodecUI_FILES        = BTCodecRootListController.m
-BTCodecUI_CFLAGS       = -fobjc-arc \
-                         -fvisibility=hidden \
-                         -I$(THEOS_PROJECT_DIR) \
-                         -I$(THEOS_PROJECT_DIR)/headers
-BTCodecUI_LDFLAGS      = -Wl,-undefined,dynamic_lookup \
-                         -Wl,-dead_strip
-BTCodecUI_INSTALL_PATH = /Library/PreferenceLoader/Preferences
-BTCodecUI_FRAMEWORKS   = Foundation UIKit CoreFoundation
+BTCodecUI_FILES              = BTCodecRootListController.m
+BTCodecUI_CFLAGS             = -fobjc-arc \
+                               -I$(THEOS_PROJECT_DIR) \
+                               -I$(THEOS_PROJECT_DIR)/headers
+BTCodecUI_PRIVATE_FRAMEWORKS = Preferences
+BTCodecUI_FRAMEWORKS         = Foundation UIKit CoreFoundation
+BTCodecUI_INSTALL_PATH       = /Library/PreferenceLoader/Preferences
 
 include $(THEOS)/makefiles/bundle.mk
 
