@@ -21,8 +21,9 @@ jobs:
       - name: Install Theos
         run: git clone --recursive https://github.com/theos/theos.git $THEOS
 
-      - name: Download Patched SDKs
+      - name: Install Theos SDKs
         run: |
+          rm -rf $THEOS/sdks
           git clone --depth=1 https://github.com/theos/sdks.git $THEOS/sdks
 
       - name: Build
