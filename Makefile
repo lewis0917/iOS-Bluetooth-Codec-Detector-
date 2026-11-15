@@ -18,10 +18,8 @@ BTCodecDaemon_LDFLAGS                  = -Wl,-undefined,dynamic_lookup \
 BTCodecDaemon_INSTALL_TARGET_PROCESSES = bluetoothd
 BTCodecDaemon_FRAMEWORKS               = Foundation CoreFoundation
 
-include $(THEOS)/makefiles/tweak.mk
-
 # ── 2. SpringBoard UI dylib → SpringBoard ─────────────────────────────────────
-TWEAK_NAME = BTCodecSB
+TWEAK_NAME += BTCodecSB
 
 BTCodecSB_FILES                    = Tweak.x
 BTCodecSB_CFLAGS                   = -fobjc-arc \
@@ -37,12 +35,15 @@ include $(THEOS)/makefiles/tweak.mk
 # ── 3. PreferenceLoader bundle ────────────────────────────────────────────────
 BUNDLE_NAME = BTCodecUI
 
-BTCodecUI_FILES              = BTCodecRootListController.m
-BTCodecUI_CFLAGS             = -fobjc-arc \
-                               -I$(THEOS_PROJECT_DIR) \
-                               -I$(THEOS_PROJECT_DIR)/headers
-BTCodecUI_PRIVATE_FRAMEWORKS = Preferences
-BTCodecUI_FRAMEWORKS         = Foundation UIKit CoreFoundation
+BTCodecUI_FILES        = BTCodecRootListController.m
+BTCodecUI_CFLAGS       = -fobjc-arc \
+                         -fvisibility=hidden \
+                         -I$(THEOS_PROJECT_DIR) \
+                         -I$(THEOS_PROJECT_DIR)/headers
+BTCodecUI_LDFLAGS      = -Wl,-undefined,dynamic_lookup \
+                         -Wl,-dead_strip
+BTCodecUI_INSTALL_PATH = /Library/PreferenceLoader/Preferences
+BTCodecUI_FRAMEWORKS   = Foundation UIKit CoreFoundation
 
 include $(THEOS)/makefiles/bundle.mk
 
