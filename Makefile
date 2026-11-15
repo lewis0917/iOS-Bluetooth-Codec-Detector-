@@ -43,7 +43,6 @@ BTCodecUI_CFLAGS             = -fobjc-arc \
                                -I$(THEOS_PROJECT_DIR)/headers
 BTCodecUI_PRIVATE_FRAMEWORKS = Preferences
 BTCodecUI_FRAMEWORKS         = Foundation UIKit CoreFoundation
-BTCodecUI_INSTALL_PATH       = /Library/PreferenceLoader/Preferences
 
 include $(THEOS)/makefiles/bundle.mk
 
