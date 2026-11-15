@@ -21,11 +21,9 @@ jobs:
       - name: Install Theos
         run: git clone --recursive https://github.com/theos/theos.git $THEOS
 
-      - name: Download SDK
+      - name: Download Patched SDKs
         run: |
-          mkdir -p $THEOS/sdks
-          curl -L https://github.com/theos/sdks/releases/latest/download/iPhoneOS16.5.sdk.tar.xz \
-            | tar -xJf - -C $THEOS/sdks
+          git clone --depth=1 https://github.com/theos/sdks.git $THEOS/sdks
 
       - name: Build
         run: make package FINALPACKAGE=1
