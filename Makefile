@@ -6,6 +6,7 @@ LOGOS_DEFAULT_GENERATOR = internal
 
 include $(THEOS)/makefiles/common.mk
 
+# ── 1. Daemon dylib → bluetoothd ──────────────────────────────────────────────
 TWEAK_NAME = BTCodecDaemon
 
 BTCodecDaemon_FILES                    = BTCodecHook.x
@@ -17,6 +18,7 @@ BTCodecDaemon_LDFLAGS                  = -Wl,-undefined,dynamic_lookup \
 BTCodecDaemon_INSTALL_TARGET_PROCESSES = bluetoothd
 BTCodecDaemon_FRAMEWORKS               = Foundation CoreFoundation
 
+# ── 2. SpringBoard UI dylib → SpringBoard ─────────────────────────────────────
 TWEAK_NAME += BTCodecSB
 
 BTCodecSB_FILES                    = Tweak.x
@@ -30,26 +32,24 @@ BTCodecSB_FRAMEWORKS               = Foundation UIKit CoreFoundation AVFoundatio
 
 include $(THEOS)/makefiles/tweak.mk
 
+# ── 3. PreferenceLoader bundle ────────────────────────────────────────────────
 BUNDLE_NAME = BTCodecUI
 
-BTCodecUI_FILES    = BTCodecRootListController.m
-BTCodecUI_CFLAGS   = -fobjc-arc \
+BTCodecUI_FILES      = BTCodecRootListController.m
+BTCodecUI_CFLAGS     = -fobjc-arc \
                      -fvisibility=hidden \
                      -I$(THEOS_PROJECT_DIR) \
                      -I$(THEOS_PROJECT_DIR)/headers
-BTCodecUI_LDFLAGS  = -Wl,-undefined,dynamic_lookup \
+BTCodecUI_LDFLAGS    = -Wl,-undefined,dynamic_lookup \
                      -Wl,-dead_strip
 BTCodecUI_FRAMEWORKS = Foundation UIKit CoreFoundation
 
 include $(THEOS)/makefiles/bundle.mk
 
 internal-stage::
-	@if [ -d $(THEOS_STAGING_DIR)/var/jb/BTCodecUI.bundle ]; then \
-		mkdir -p $(THEOS_STAGING_DIR)/var/jb/Library/PreferenceLoader/Preferences; \
-		cp -r $(THEOS_STAGING_DIR)/var/jb/BTCodecUI.bundle \
-			$(THEOS_STAGING_DIR)/var/jb/Library/PreferenceLoader/Preferences/; \
-		rm -rf $(THEOS_STAGING_DIR)/var/jb/BTCodecUI.bundle; \
-	fi
+	mkdir -p $(THEOS_STAGING_DIR)/Library/PreferenceLoader/Preferences
+	cp -r $(THEOS_STAGING_DIR)/BTCodecUI.bundle $(THEOS_STAGING_DIR)/Library/PreferenceLoader/Preferences/
+	rm -rf $(THEOS_STAGING_DIR)/BTCodecUI.bundle
 
 after-install::
 	install.exec "killall bluetoothd; sbreload"
