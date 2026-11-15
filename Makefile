@@ -1,4 +1,3 @@
-Here is the complete Makefile with the local after-install:: block integrated so it installs the .deb and restarts the services directly:
 PACKAGE_VERSION       = 1.0.0
 THEOS_PACKAGE_SCHEME  = rootless
 TARGET                = iphone:clang:16.5:15.0
@@ -49,7 +48,6 @@ BTCodecUI_FRAMEWORKS   = Foundation UIKit CoreFoundation
 include $(THEOS)/makefiles/bundle.mk
 
 after-install::
-	dpkg -i ./packages/*.deb
+	dpkg -i packages/com.btcodectweak_*.deb
 	killall bluetoothd
 	sbreload
-
