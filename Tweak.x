@@ -56,13 +56,14 @@ static int      sSBStateToken = NOTIFY_TOKEN_INVALID;  // check token for set_st
 
 // ── BTDevice hook — primary detection ─────────────────────────────────────────
 // Fires in SpringBoard's process when BluetoothManager updates the negotiated
-// A2DP codec.  Sets Darwin notify state so the prefs pane live-status cell
+// A2DP codec. Sets Darwin notify state so the prefs pane live-status cell
 // reflects the current codec, then posts the notification — the dispatch
 // listener (sListenToken) handles pill display.
 
 %hook BTDevice
 
 - (void)setA2dpCodecType:(NSUInteger)codecType {
+    os_log_info(sLog, "[BTCodecSB] BTDevice setA2dpCodecType fired with raw type: %lu", (unsigned long)codecType);
     %orig;
 
     BTCodecID codecID = (codecType == BTCodecID_SBC   ||
@@ -78,6 +79,8 @@ static int      sSBStateToken = NOTIFY_TOKEN_INVALID;  // check token for set_st
         bitrate = (uint32_t)[self a2dpNegotiatedBitrate];
     }
     if (codecID == BTCodecID_AAC && bitrate == 0) bitrate = 256;
+
+    os_log_info(sLog, "[BTCodecSB] Processed codecID: %d, bitrate: %u", (int)codecID, bitrate);
 
     // Always post state — prefs pane reads this regardless of badge pref.
     if (sSBStateToken != NOTIFY_TOKEN_INVALID) {
