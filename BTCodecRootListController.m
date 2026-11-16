@@ -1,42 +1,27 @@
 // BTCodecRootListController.m
-// PreferenceLoader root pane for BTCodecTweak.
-//
-// Preference domain: com.btcodectweak
-// Keys:
-//   enabled       BOOL  (default YES) — master toggle for the pill badge
-//   alertOnSBC    BOOL  (default YES) — orange accent when codec degrades to SBC
-//
-// IPC: posts "com.btcodectweak.prefschanged" via Darwin notify on every write
-// so BTCodecSB (Tweak.x) can re-read without polling.
 
 #import <Foundation/Foundation.h>
 #import <UIKit/UIKit.h>
 #import <CoreFoundation/CoreFoundation.h>
-#import <notify.h>
+#include <notify.h>
 
 #import <Preferences/PSListController.h>
 #import <Preferences/PSSpecifier.h>
 
 #import "BTCodecCommon.h"
 
-// ── Constants ──────────────────────────────────────────────────────────────────
-
-static NSString *const kDomain           = @"com.btcodectweak";
-static NSString *const kPrefsChangedPost = @"com.btcodectweak.prefschanged";
-
-// ── Controller ─────────────────────────────────────────────────────────────────
+static NSString *const kDomain        = @"com.btcodectweak";
+static NSString *const kPrefsChanged  = @"com.btcodectweak.prefschanged";
 
 @interface BTCodecRootListController : PSListController {
-    PSSpecifier *_codecStatusSpecifier;
+    int _codecNotifyToken;
 }
 @property (nonatomic, strong) PSSpecifier *codecStatusSpecifier;
 @end
 
 @implementation BTCodecRootListController
 
-@synthesize codecStatusSpecifier = _codecStatusSpecifier;
-
-// ── Specifier construction ─────────────────────────────────────────────────────
+// ── Specifiers ─────────────────────────────────────────────────────────────────
 
 - (NSArray *)specifiers {
     if (_specifiers) return _specifiers;
@@ -46,12 +31,10 @@ static NSString *const kPrefsChangedPost = @"com.btcodectweak.prefschanged";
     // ── Group 1: Live status ───────────────────────────────────────────────────
     PSSpecifier *statusGroup = [PSSpecifier groupSpecifierWithName:@"Live Status"];
     [statusGroup setProperty:
-        @"Reflects the most recently detected A2DP codec. "
-        @"Connect a Bluetooth audio device to trigger detection."
+        @"Reflects the most recently detected A2DP codec."
         forKey:@"footerText"];
     [specs addObject:statusGroup];
 
-    // PSStaticTextCell with a custom getter shows label on left, value on right.
     PSSpecifier *codecSpec = [PSSpecifier
         preferenceSpecifierNamed:@"Active Codec"
                           target:self
@@ -76,8 +59,7 @@ static NSString *const kPrefsChangedPost = @"com.btcodectweak.prefschanged";
     // ── Group 2: Display options ───────────────────────────────────────────────
     PSSpecifier *displayGroup = [PSSpecifier groupSpecifierWithName:@"Display"];
     [displayGroup setProperty:
-        @"The badge appears below the Dynamic Island or status bar "
-        @"for 3 seconds whenever the active codec changes."
+        @"Badge appears below the Dynamic Island for 3 seconds on codec change."
         forKey:@"footerText"];
     [specs addObject:displayGroup];
 
@@ -94,7 +76,7 @@ static NSString *const kPrefsChangedPost = @"com.btcodectweak.prefschanged";
     [enableSpec setProperty:@YES       forKey:@"default"];
     [specs addObject:enableSpec];
 
-    PSSpecifier *sbcAlertSpec = [PSSpecifier
+    PSSpecifier *sbcSpec = [PSSpecifier
         preferenceSpecifierNamed:@"Orange Alert on SBC Fallback"
                           target:self
                              set:@selector(setPreferenceValue:specifier:)
@@ -102,12 +84,12 @@ static NSString *const kPrefsChangedPost = @"com.btcodectweak.prefschanged";
                           detail:nil
                             cell:PSSwitchCell
                             edit:nil];
-    [sbcAlertSpec setProperty:kDomain       forKey:@"defaults"];
-    [sbcAlertSpec setProperty:@"alertOnSBC" forKey:@"key"];
-    [sbcAlertSpec setProperty:@YES          forKey:@"default"];
-    [specs addObject:sbcAlertSpec];
+    [sbcSpec setProperty:kDomain       forKey:@"defaults"];
+    [sbcSpec setProperty:@"alertOnSBC" forKey:@"key"];
+    [sbcSpec setProperty:@YES          forKey:@"default"];
+    [specs addObject:sbcSpec];
 
-    // ── Group 3: About (no header; version in footer) ─────────────────────────
+    // ── Group 3: About ─────────────────────────────────────────────────────────
     PSSpecifier *aboutGroup = [PSSpecifier groupSpecifierWithName:@""];
     [aboutGroup setProperty:@"BTCodecTweak 1.0.0 — github.com/lewis0917"
                      forKey:@"footerText"];
@@ -127,27 +109,55 @@ static NSString *const kPrefsChangedPost = @"com.btcodectweak.prefschanged";
     return _specifiers;
 }
 
-// ── View lifecycle ─────────────────────────────────────────────────────────────
+// ── Lifecycle ──────────────────────────────────────────────────────────────────
 
 - (void)viewDidLoad {
     [super viewDidLoad];
-    self.title = @"Bluetooth Codec";
+    self.title        = @"Bluetooth Codec";
+    _codecNotifyToken = NOTIFY_TOKEN_INVALID;
 }
 
 - (void)viewWillAppear:(BOOL)animated {
     [super viewWillAppear:animated];
-    // Refresh the live-status cells each time the pane becomes visible —
-    // the codec state may have changed since last open.
+
+    // Cancel any stale token from a previous appearance before re-registering.
+    // PSListController caches the VC — viewDidLoad only fires once, so
+    // pairing register/cancel on will-appear/will-disappear ensures the
+    // listener is always live while the pane is on screen and never leaks.
+    if (_codecNotifyToken != NOTIFY_TOKEN_INVALID) {
+        notify_cancel(_codecNotifyToken);
+        _codecNotifyToken = NOTIFY_TOKEN_INVALID;
+    }
+
+    notify_register_dispatch(kBTCodecNotifName,
+                             &_codecNotifyToken,
+                             dispatch_get_main_queue(),
+                             ^(int __unused t) {
+        if (self.codecStatusSpecifier) {
+            [self reloadSpecifier:self.codecStatusSpecifier];
+        }
+    });
+
+    // Refresh immediately in case codec changed while pane was offscreen
     if (self.codecStatusSpecifier) {
-        [self reloadSpecifier:self.codecStatusSpecifier animated:NO];
+        [self reloadSpecifier:self.codecStatusSpecifier];
     }
 }
 
-// ── Getter methods for display-only cells ─────────────────────────────────────
+- (void)viewWillDisappear:(BOOL)animated {
+    [super viewWillDisappear:animated];
+    if (_codecNotifyToken != NOTIFY_TOKEN_INVALID) {
+        notify_cancel(_codecNotifyToken);
+        _codecNotifyToken = NOTIFY_TOKEN_INVALID;
+    }
+}
+
+// ── Display getters ────────────────────────────────────────────────────────────
 
 - (NSString *)currentCodecDisplayString {
-    BTCodecID codecID = [self _readLiveCodecID];
-    switch (codecID) {
+    uint64_t state = [self _readLiveState];
+    if (!BTCodecStateIsValid(state)) return @"No BT Audio Active";
+    switch (BTCodecStateGetID(state)) {
         case BTCodecID_AAC:       return @"AAC-LC";
         case BTCodecID_SBC:       return @"SBC";
         case BTCodecID_MPEG12:    return @"MPEG-1/2 Audio";
@@ -157,49 +167,37 @@ static NSString *const kPrefsChangedPost = @"com.btcodectweak.prefschanged";
 }
 
 - (NSString *)currentBitrateDisplayString {
-    BTCodecID codecID = [self _readLiveCodecID];
-    if (codecID == BTCodecID_Unknown) return @"—";
-
-    uint32_t bitrate = [self _readLiveBitrate];
+    uint64_t state = [self _readLiveState];
+    if (!BTCodecStateIsValid(state)) return @"—";
+    uint32_t bitrate = BTCodecStateGetBitrate(state);
     if (bitrate == 0) {
-        return (codecID == BTCodecID_AAC) ? @"~256 kbps (est.)" : @"~328 kbps (est.)";
+        return BTCodecStateGetID(state) == BTCodecID_AAC
+             ? @"~256 kbps (est.)" : @"—";
     }
     return [NSString stringWithFormat:@"%u kbps", bitrate];
 }
 
-- (NSString *)versionString {
-    return @"1.0.0";
-}
+- (NSString *)versionString { return @"1.0.0"; }
 
-// ── Darwin notify state helpers ───────────────────────────────────────────────
+// ── Darwin notify state read ───────────────────────────────────────────────────
 
-- (uint64_t)_readRawNotifyState {
+- (uint64_t)_readLiveState {
     int token = NOTIFY_TOKEN_INVALID;
-    uint32_t status = notify_register_check(kBTCodecNotifName, &token);
-    if (status != NOTIFY_STATUS_OK) return 0;
+    if (notify_register_check(kBTCodecNotifName, &token) != NOTIFY_STATUS_OK) {
+        return 0;
+    }
     uint64_t state = 0;
     notify_get_state(token, &state);
     notify_cancel(token);
     return state;
 }
 
-- (BTCodecID)_readLiveCodecID {
-    return BTCodecStateGetID([self _readRawNotifyState]);
-}
-
-- (uint32_t)_readLiveBitrate {
-    return BTCodecStateGetBitrate([self _readRawNotifyState]);
-}
-
-// ── Preference read/write ─────────────────────────────────────────────────────
+// ── Preference read / write ────────────────────────────────────────────────────
 
 - (id)readPreferenceValue:(PSSpecifier *)spec {
     NSString *key = [spec propertyForKey:@"key"];
     if (!key) return [spec propertyForKey:@"default"];
-
-    // Synchronize before read to pick up writes from other processes.
     CFPreferencesAppSynchronize((__bridge CFStringRef)kDomain);
-
     id value = (__bridge_transfer id)CFPreferencesCopyAppValue(
         (__bridge CFStringRef)key,
         (__bridge CFStringRef)kDomain
@@ -210,7 +208,6 @@ static NSString *const kPrefsChangedPost = @"com.btcodectweak.prefschanged";
 - (void)setPreferenceValue:(id)value specifier:(PSSpecifier *)spec {
     NSString *key = [spec propertyForKey:@"key"];
     if (!key || !value) return;
-
     CFPreferencesSetAppValue(
         (__bridge CFStringRef)key,
         (__bridge CFPropertyListRef)value,
@@ -221,9 +218,7 @@ static NSString *const kPrefsChangedPost = @"com.btcodectweak.prefschanged";
         kCFPreferencesAnyUser,
         kCFPreferencesCurrentHost
     );
-
-    // Notify the SpringBoard dylib so it re-reads without a respring.
-    notify_post([kPrefsChangedPost UTF8String]);
+    notify_post([kPrefsChanged UTF8String]);
 }
 
 @end
