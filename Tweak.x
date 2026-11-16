@@ -29,7 +29,18 @@ static BOOL BTCodec_AlertOnSBC(void) {
     return r;
 }
 
+// ── BluetoothManager private class stub ───────────────────────────────────────
+// BluetoothManager.framework loads in SpringBoard for BT status bar management.
+// ObjC class metadata is not stripped — this hook fires even when bluetoothd
+// symbols are fully stripped.
+
+@interface BTDevice : NSObject
+@property (nonatomic, assign) NSUInteger a2dpCodecType;
+@property (nonatomic, assign) NSUInteger a2dpNegotiatedBitrate;
+@end
+
 // ── Forward declaration ────────────────────────────────────────────────────────
+
 @interface BTCodecPillWindow : UIWindow
 + (instancetype)shared;
 - (void)presentWithCodecID:(BTCodecID)codecID bitrate:(uint32_t)bitrate;
@@ -37,9 +48,48 @@ static BOOL BTCodec_AlertOnSBC(void) {
 @end
 
 // ── File-scope globals ─────────────────────────────────────────────────────────
-static os_log_t  sLog         = NULL;
-static int       sListenToken = NOTIFY_TOKEN_INVALID;  // codec notifications
-static int       sPrefsToken  = NOTIFY_TOKEN_INVALID;  // prefs change notifications
+
+static os_log_t sLog          = NULL;
+static int      sListenToken  = NOTIFY_TOKEN_INVALID;  // dispatch listener
+static int      sPrefsToken   = NOTIFY_TOKEN_INVALID;  // prefs change listener
+static int      sSBStateToken = NOTIFY_TOKEN_INVALID;  // check token for set_state
+
+// ── BTDevice hook — primary detection ─────────────────────────────────────────
+// Fires in SpringBoard's process when BluetoothManager updates the negotiated
+// A2DP codec.  Sets Darwin notify state so the prefs pane live-status cell
+// reflects the current codec, then posts the notification — the dispatch
+// listener (sListenToken) handles pill display.
+
+%hook BTDevice
+
+- (void)setA2dpCodecType:(NSUInteger)codecType {
+    %orig;
+
+    BTCodecID codecID = (codecType == BTCodecID_SBC   ||
+                         codecType == BTCodecID_MPEG12 ||
+                         codecType == BTCodecID_AAC   ||
+                         codecType == BTCodecID_ATRAC ||
+                         codecType == BTCodecID_VendorExt)
+                      ? (BTCodecID)(uint8_t)codecType
+                      : BTCodecID_Unknown;
+
+    uint32_t bitrate = 0;
+    if ([self respondsToSelector:@selector(a2dpNegotiatedBitrate)]) {
+        bitrate = (uint32_t)[self a2dpNegotiatedBitrate];
+    }
+    if (codecID == BTCodecID_AAC && bitrate == 0) bitrate = 256;
+
+    // Always post state — prefs pane reads this regardless of badge pref.
+    if (sSBStateToken != NOTIFY_TOKEN_INVALID) {
+        notify_set_state(sSBStateToken, BTCodecMakeState(codecID, bitrate));
+    }
+    notify_post(kBTCodecNotifName);
+
+    // Pill display is handled by BTCodec_HandleNotification via sListenToken.
+    // No direct presentWithCodecID: call here — avoids double-firing.
+}
+
+%end
 
 // ── Pill window ────────────────────────────────────────────────────────────────
 
@@ -170,12 +220,12 @@ static int       sPrefsToken  = NOTIFY_TOKEN_INVALID;  // prefs change notificat
 
     _accentStrip.frame = CGRectMake(0, 8.0, 3.0, pillH - 16.0);
 
-    CGFloat xCursor = 4.0 + iconGap;
-    CGFloat codeH   = _codeLabel.font.lineHeight;
-    CGFloat detailH = _detailLabel.font.lineHeight;
+    CGFloat xCursor   = 4.0 + iconGap;
+    CGFloat codeH     = _codeLabel.font.lineHeight;
+    CGFloat detailH   = _detailLabel.font.lineHeight;
     BOOL    hasDetail = detail.length > 0;
-    CGFloat blockH  = hasDetail ? (codeH + 2.0 + detailH) : codeH;
-    CGFloat blockY  = (pillH - blockH) / 2.0;
+    CGFloat blockH    = hasDetail ? (codeH + 2.0 + detailH) : codeH;
+    CGFloat blockY    = (pillH - blockH) / 2.0;
 
     _codeLabel.frame    = CGRectMake(xCursor, blockY, textW, codeH);
     _detailLabel.frame  = CGRectMake(xCursor, blockY + codeH + 2.0, textW, detailH);
@@ -238,11 +288,13 @@ static int       sPrefsToken  = NOTIFY_TOKEN_INVALID;  // prefs change notificat
 @end
 
 // ── Notification handler ───────────────────────────────────────────────────────
+// Handles both BTDevice hook posts (via sSBStateToken → notify_post) and
+// any daemon-side posts if BTCodecHook.x manages to fire on this OS version.
 
 static void BTCodec_HandleNotification(int token) {
     uint64_t state = 0;
     if (notify_get_state(token, &state) != NOTIFY_STATUS_OK) return;
-    if (!BTCodecStateIsValid(state)) return;   // uninitialised — daemon hasn't posted
+    if (!BTCodecStateIsValid(state)) return;
     if (!BTCodec_IsEnabled()) return;
 
     BTCodecID codecID = BTCodecStateGetID(state);
@@ -262,10 +314,17 @@ static void BTCodec_HandleNotification(int token) {
 
     sLog = os_log_create("com.btcodectweak", "ui");
 
-    // Codec state notifications
+    // Check token for set_state — used by BTDevice hook to publish codec state.
+    // Separate from the dispatch listener so it's never accidentally overwritten.
+    uint32_t checkStatus = notify_register_check(kBTCodecNotifName, &sSBStateToken);
+    if (checkStatus != NOTIFY_STATUS_OK) {
+        os_log_error(sLog, "[BTCodecUI] notify_register_check failed: %u", checkStatus);
+    }
+
+    // Dispatch listener — fires BTCodec_HandleNotification on every post.
     uint32_t status = notify_register_dispatch(
         kBTCodecNotifName,
-        &sListenToken,                          // codec token — never overwritten
+        &sListenToken,
         dispatch_get_main_queue(),
         ^(int token) { BTCodec_HandleNotification(token); }
     );
@@ -273,16 +332,16 @@ static void BTCodec_HandleNotification(int token) {
         os_log_error(sLog, "[BTCodecUI] notify_register_dispatch failed: %u", status);
     }
 
-    // Preference change notifications — separate token, separate variable
+    // Prefs change listener — separate token, never touches sListenToken.
     notify_register_dispatch(kBTCodecPrefsChanged,
                              &sPrefsToken,
                              dispatch_get_main_queue(),
                              ^(int __unused t) {
-        // CFPreferencesAppSynchronize called on next BTCodec_IsEnabled() /
-        // BTCodec_AlertOnSBC() invocation — no action needed here
+        // CFPreferencesAppSynchronize called on next BTCodec_IsEnabled() invocation
     });
 
-    // Route change belt-and-suspenders
+    // Route change belt-and-suspenders — 2-second delay lets AVDTP renegotiation
+    // settle before reading daemon state.
     [[NSNotificationCenter defaultCenter]
         addObserverForName:AVAudioSessionRouteChangeNotification
                     object:nil
@@ -302,8 +361,6 @@ static void BTCodec_HandleNotification(int token) {
 
         if (hasA2DP && sListenToken != NOTIFY_TOKEN_INVALID) {
             int capturedToken = sListenToken;
-            // 2-second delay — lets AVDTP codec renegotiation settle
-            // before reading the daemon's posted state
             dispatch_after(
                 dispatch_time(DISPATCH_TIME_NOW, (int64_t)(2.0 * NSEC_PER_SEC)),
                 dispatch_get_main_queue(), ^{
@@ -312,13 +369,19 @@ static void BTCodec_HandleNotification(int token) {
         }
     }];
 
-    // Pre-warm pill window
+    // Pre-warm pill window — amortises first-call allocation cost
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(3.0 * NSEC_PER_SEC)),
                    dispatch_get_main_queue(),
                    ^{ (void)[BTCodecPillWindow shared]; });
 }
 
+// ── Destructor ─────────────────────────────────────────────────────────────────
+
 %dtor {
+    if (sSBStateToken != NOTIFY_TOKEN_INVALID) {
+        notify_cancel(sSBStateToken);
+        sSBStateToken = NOTIFY_TOKEN_INVALID;
+    }
     if (sListenToken != NOTIFY_TOKEN_INVALID) {
         notify_cancel(sListenToken);
         sListenToken = NOTIFY_TOKEN_INVALID;
