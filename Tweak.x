@@ -116,7 +116,7 @@ static int      sSBStateToken = NOTIFY_TOKEN_INVALID;  // check token for set_st
 
 %end
 
-// ── Pill window implementation (unchanged) ────────────────────────────────────
+// ── Pill window implementation ────────────────────────────────────────────────
 
 @implementation BTCodecPillWindow {
     UIView              *_pill;
@@ -292,7 +292,7 @@ static int      sSBStateToken = NOTIFY_TOKEN_INVALID;  // check token for set_st
         DISPATCH_SOURCE_TYPE_TIMER, 0, 0, dispatch_get_main_queue());
     dispatch_source_set_timer(timer,
         dispatch_time(DISPATCH_TIME_NOW, (int64_t)(delay * NSEC_PER_SEC)),
-        DISPATCH_FOREVER,
+        0,
         (int64_t)(0.1 * NSEC_PER_SEC));
     __weak BTCodecPillWindow *weakSelf = self;
     dispatch_source_set_event_handler(timer, ^{
