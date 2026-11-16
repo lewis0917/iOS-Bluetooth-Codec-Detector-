@@ -3,19 +3,45 @@
 #import <Foundation/Foundation.h>
 #import <UIKit/UIKit.h>
 #import <AVFoundation/AVFoundation.h>
+#import <CoreFoundation/CoreFoundation.h>
 #include <notify.h>
 #include <os/log.h>
 
 #import "BTCodecCommon.h"
 
+// ── Preference helpers ─────────────────────────────────────────────────────────
+
+static BOOL BTCodec_IsEnabled(void) {
+    CFPreferencesAppSynchronize(CFSTR("com.btcodectweak"));
+    CFTypeRef v = CFPreferencesCopyAppValue(CFSTR("enabled"),
+                                            CFSTR("com.btcodectweak"));
+    BOOL r = v ? CFBooleanGetValue((CFBooleanRef)v) : YES;
+    if (v) CFRelease(v);
+    return r;
+}
+
+static BOOL BTCodec_AlertOnSBC(void) {
+    CFPreferencesAppSynchronize(CFSTR("com.btcodectweak"));
+    CFTypeRef v = CFPreferencesCopyAppValue(CFSTR("alertOnSBC"),
+                                            CFSTR("com.btcodectweak"));
+    BOOL r = v ? CFBooleanGetValue((CFBooleanRef)v) : YES;
+    if (v) CFRelease(v);
+    return r;
+}
+
+// ── Forward declaration ────────────────────────────────────────────────────────
 @interface BTCodecPillWindow : UIWindow
 + (instancetype)shared;
 - (void)presentWithCodecID:(BTCodecID)codecID bitrate:(uint32_t)bitrate;
 - (void)dismiss;
 @end
 
+// ── File-scope globals ─────────────────────────────────────────────────────────
 static os_log_t  sLog         = NULL;
-static int       sListenToken = NOTIFY_TOKEN_INVALID;
+static int       sListenToken = NOTIFY_TOKEN_INVALID;  // codec notifications
+static int       sPrefsToken  = NOTIFY_TOKEN_INVALID;  // prefs change notifications
+
+// ── Pill window ────────────────────────────────────────────────────────────────
 
 @implementation BTCodecPillWindow {
     UIView              *_pill;
@@ -68,11 +94,13 @@ static int       sListenToken = NOTIFY_TOKEN_INVALID;
     [_blurView.contentView.layer addSublayer:_accentStrip];
 
     _codeLabel = [[UILabel alloc] init];
-    _codeLabel.font      = [UIFont systemFontOfSize:13.0 weight:UIFontWeightBold];
+    _codeLabel.font      = [UIFont systemFontOfSize:13.0
+                                             weight:UIFontWeightBold];
     _codeLabel.textColor = UIColor.whiteColor;
 
     _detailLabel = [[UILabel alloc] init];
-    _detailLabel.font      = [UIFont systemFontOfSize:11.0 weight:UIFontWeightRegular];
+    _detailLabel.font      = [UIFont systemFontOfSize:11.0
+                                               weight:UIFontWeightRegular];
     _detailLabel.textColor = [UIColor colorWithWhite:1.0 alpha:0.65];
 
     [_blurView.contentView addSubview:_codeLabel];
@@ -116,20 +144,19 @@ static int       sListenToken = NOTIFY_TOKEN_INVALID;
     _detailLabel.text = detail;
     _accentStrip.backgroundColor = accent.CGColor;
 
-    const CGFloat hPad     = 12.0;
-    const CGFloat iconGap  =  8.0;
-    const CGFloat pillH    = 40.0;
+    const CGFloat hPad    = 12.0;
+    const CGFloat iconGap =  8.0;
+    const CGFloat pillH   = 40.0;
 
     [_codeLabel sizeToFit];
     [_detailLabel sizeToFit];
-    CGFloat textW = MAX(_codeLabel.frame.size.width, _detailLabel.frame.size.width);
+    CGFloat textW = MAX(_codeLabel.frame.size.width,
+                        _detailLabel.frame.size.width);
     textW = MAX(textW, 50.0);
     CGFloat pillW = hPad + 4.0 + iconGap + textW + hPad;
     pillW = MAX(pillW, 120.0);
 
-    CGFloat screenW = UIScreen.mainScreen.bounds.size.width;
-
-    // FIX: use self.safeAreaInsets — no deprecated UIApplication.windows call
+    CGFloat screenW  = UIScreen.mainScreen.bounds.size.width;
     CGFloat topInset = self.safeAreaInsets.top;
     if (topInset < 10.0) topInset = 10.0;
     CGFloat pillY = topInset + 6.0;
@@ -137,8 +164,8 @@ static int       sListenToken = NOTIFY_TOKEN_INVALID;
     CGRect pillFrame  = CGRectMake((screenW - pillW) / 2.0, pillY, pillW, pillH);
     CGRect entryFrame = CGRectOffset(pillFrame, 0, -28.0);
 
-    self.frame  = UIScreen.mainScreen.bounds;
-    _pill.frame = entryFrame;
+    self.frame      = UIScreen.mainScreen.bounds;
+    _pill.frame     = entryFrame;
     _blurView.frame = _pill.bounds;
 
     _accentStrip.frame = CGRectMake(0, 8.0, 3.0, pillH - 16.0);
@@ -146,12 +173,12 @@ static int       sListenToken = NOTIFY_TOKEN_INVALID;
     CGFloat xCursor = 4.0 + iconGap;
     CGFloat codeH   = _codeLabel.font.lineHeight;
     CGFloat detailH = _detailLabel.font.lineHeight;
-    BOOL hasDetail  = detail.length > 0;
+    BOOL    hasDetail = detail.length > 0;
     CGFloat blockH  = hasDetail ? (codeH + 2.0 + detailH) : codeH;
     CGFloat blockY  = (pillH - blockH) / 2.0;
 
-    _codeLabel.frame   = CGRectMake(xCursor, blockY, textW, codeH);
-    _detailLabel.frame = CGRectMake(xCursor, blockY + codeH + 2.0, textW, detailH);
+    _codeLabel.frame    = CGRectMake(xCursor, blockY, textW, codeH);
+    _detailLabel.frame  = CGRectMake(xCursor, blockY + codeH + 2.0, textW, detailH);
     _detailLabel.hidden = !hasDetail;
 
     [self cancelDismissTimer];
@@ -210,24 +237,35 @@ static int       sListenToken = NOTIFY_TOKEN_INVALID;
 
 @end
 
+// ── Notification handler ───────────────────────────────────────────────────────
+
 static void BTCodec_HandleNotification(int token) {
     uint64_t state = 0;
     if (notify_get_state(token, &state) != NOTIFY_STATUS_OK) return;
+    if (!BTCodecStateIsValid(state)) return;   // uninitialised — daemon hasn't posted
+    if (!BTCodec_IsEnabled()) return;
+
     BTCodecID codecID = BTCodecStateGetID(state);
     uint32_t  bitrate = BTCodecStateGetBitrate(state);
+
+    if (codecID == BTCodecID_SBC && !BTCodec_AlertOnSBC()) return;
+
     dispatch_async(dispatch_get_main_queue(), ^{
         [[BTCodecPillWindow shared] presentWithCodecID:codecID bitrate:bitrate];
     });
 }
+
+// ── Constructor ────────────────────────────────────────────────────────────────
 
 %ctor {
     if (![NSProcessInfo.processInfo.processName isEqualToString:@"SpringBoard"]) return;
 
     sLog = os_log_create("com.btcodectweak", "ui");
 
+    // Codec state notifications
     uint32_t status = notify_register_dispatch(
         kBTCodecNotifName,
-        &sListenToken,
+        &sListenToken,                          // codec token — never overwritten
         dispatch_get_main_queue(),
         ^(int token) { BTCodec_HandleNotification(token); }
     );
@@ -235,13 +273,25 @@ static void BTCodec_HandleNotification(int token) {
         os_log_error(sLog, "[BTCodecUI] notify_register_dispatch failed: %u", status);
     }
 
+    // Preference change notifications — separate token, separate variable
+    notify_register_dispatch(kBTCodecPrefsChanged,
+                             &sPrefsToken,
+                             dispatch_get_main_queue(),
+                             ^(int __unused t) {
+        // CFPreferencesAppSynchronize called on next BTCodec_IsEnabled() /
+        // BTCodec_AlertOnSBC() invocation — no action needed here
+    });
+
+    // Route change belt-and-suspenders
     [[NSNotificationCenter defaultCenter]
         addObserverForName:AVAudioSessionRouteChangeNotification
                     object:nil
                      queue:[NSOperationQueue mainQueue]
                 usingBlock:^(NSNotification *note) {
         NSNumber *reason = note.userInfo[AVAudioSessionRouteChangeReasonKey];
-        if (reason.unsignedIntegerValue != 1 && reason.unsignedIntegerValue != 3) return;
+        if (reason.unsignedIntegerValue != 1 &&
+            reason.unsignedIntegerValue != 3) return;
+
         BOOL hasA2DP = NO;
         for (AVAudioSessionPortDescription *port in
              [AVAudioSession sharedInstance].currentRoute.outputs) {
@@ -249,18 +299,32 @@ static void BTCodec_HandleNotification(int token) {
                 hasA2DP = YES; break;
             }
         }
+
         if (hasA2DP && sListenToken != NOTIFY_TOKEN_INVALID) {
-            BTCodec_HandleNotification(sListenToken);
+            int capturedToken = sListenToken;
+            // 2-second delay — lets AVDTP codec renegotiation settle
+            // before reading the daemon's posted state
+            dispatch_after(
+                dispatch_time(DISPATCH_TIME_NOW, (int64_t)(2.0 * NSEC_PER_SEC)),
+                dispatch_get_main_queue(), ^{
+                BTCodec_HandleNotification(capturedToken);
+            });
         }
     }];
 
+    // Pre-warm pill window
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(3.0 * NSEC_PER_SEC)),
-                   dispatch_get_main_queue(), ^{ (void)[BTCodecPillWindow shared]; });
+                   dispatch_get_main_queue(),
+                   ^{ (void)[BTCodecPillWindow shared]; });
 }
 
 %dtor {
     if (sListenToken != NOTIFY_TOKEN_INVALID) {
         notify_cancel(sListenToken);
         sListenToken = NOTIFY_TOKEN_INVALID;
+    }
+    if (sPrefsToken != NOTIFY_TOKEN_INVALID) {
+        notify_cancel(sPrefsToken);
+        sPrefsToken = NOTIFY_TOKEN_INVALID;
     }
 }
