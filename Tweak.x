@@ -31,9 +31,6 @@ static BOOL BTCodec_AlertOnSBC(void) {
 }
 
 // ── BluetoothManager private class stub ───────────────────────────────────────
-// BluetoothManager.framework loads in SpringBoard for BT status bar management.
-// ObjC class metadata is not stripped — this hook fires even when bluetoothd
-// symbols are fully stripped.
 
 @interface BTDevice : NSObject
 @property (nonatomic, assign) NSUInteger a2dpCodecType;
@@ -56,10 +53,6 @@ static int      sPrefsToken   = NOTIFY_TOKEN_INVALID;  // prefs change listener
 static int      sSBStateToken = NOTIFY_TOKEN_INVALID;  // check token for set_state
 
 // ── BTDevice hook — primary detection ─────────────────────────────────────────
-// Fires in SpringBoard's process when BluetoothManager updates the negotiated
-// A2DP codec. Sets Darwin notify state so the prefs pane live-status cell
-// reflects the current codec, then posts the notification — the dispatch
-// listener (sListenToken) handles pill display.
 
 %hook BTDevice
 
@@ -83,14 +76,10 @@ static int      sSBStateToken = NOTIFY_TOKEN_INVALID;  // check token for set_st
 
     os_log_info(sLog, "[BTCodecSB] Processed codecID: %d, bitrate: %u", (int)codecID, bitrate);
 
-    // Always post state — prefs pane reads this regardless of badge pref.
     if (sSBStateToken != NOTIFY_TOKEN_INVALID) {
         notify_set_state(sSBStateToken, BTCodecMakeState(codecID, bitrate));
     }
     notify_post(kBTCodecNotifName);
-
-    // Pill display is handled by BTCodec_HandleNotification via sListenToken.
-    // No direct presentWithCodecID: call here — avoids double-firing.
 }
 
 %end
@@ -271,7 +260,7 @@ static int      sSBStateToken = NOTIFY_TOKEN_INVALID;  // check token for set_st
         DISPATCH_SOURCE_TYPE_TIMER, 0, 0, dispatch_get_main_queue());
     dispatch_source_set_timer(timer,
         dispatch_time(DISPATCH_TIME_NOW, (int64_t)(delay * NSEC_PER_SEC)),
-        DISPATCH_TIME_FOREVER,
+        DISPATCH_SOURCE_FOREVER,
         (int64_t)(0.1 * NSEC_PER_SEC));
     __weak BTCodecPillWindow *weakSelf = self;
     dispatch_source_set_event_handler(timer, ^{
@@ -292,8 +281,6 @@ static int      sSBStateToken = NOTIFY_TOKEN_INVALID;  // check token for set_st
 @end
 
 // ── Notification handler ───────────────────────────────────────────────────────
-// Handles both BTDevice hook posts (via sSBStateToken → notify_post) and
-// any daemon-side posts if BTCodecHook.x manages to fire on this OS version.
 
 static void BTCodec_HandleNotification(int token) {
     uint64_t state = 0;
@@ -316,59 +303,67 @@ static void BTCodec_HandleNotification(int token) {
 %ctor {
     if (![NSProcessInfo.processInfo.processName isEqualToString:@"SpringBoard"]) return;
 
-    // Runtime selector dump for iOS 18 BluetoothManager classes
+    // Runtime class & method enumeration dump for SpringBoard
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(5.0 * NSEC_PER_SEC)),
                    dispatch_get_main_queue(), ^{
         NSMutableString *out = [NSMutableString string];
-        NSArray *candidates = @[
-            @"BTDevice", @"BTAccessory", @"BTAVDevice",
-            @"BTLocalDevice", @"BTMediaPlayer", @"BTAudioController"
-        ];
-        for (NSString *className in candidates) {
-            Class cls = NSClassFromString(className);
-            if (!cls) {
-                [out appendFormat:@"%@ — not found\n", className];
-                continue;
-            }
-            [out appendFormat:@"\n=== %@ ===\n", className];
+
+        int numClasses = objc_getClassList(NULL, 0);
+        Class *classes = (__unsafe_unretained Class *)malloc(sizeof(Class) * numClasses);
+        objc_getClassList(classes, numClasses);
+
+        for (int i = 0; i < numClasses; i++) {
+            NSString *name = NSStringFromClass(classes[i]);
+            NSString *lower = name.lowercaseString;
+
+            BOOL btRelated = [lower hasPrefix:@"bt"]              ||
+                             [lower containsString:@"bluetooth"]   ||
+                             [lower containsString:@"a2dp"]        ||
+                             [lower containsString:@"audio"]       ||
+                             [lower containsString:@"media"];
+            if (!btRelated) continue;
+
+            [out appendFormat:@"\n=== %@ ===\n", name];
             unsigned int count = 0;
-            Method *methods = class_copyMethodList(cls, &count);
-            for (unsigned int i = 0; i < count; i++) {
-                NSString *sel = NSStringFromSelector(method_getName(methods[i]));
-                NSString *lower = sel.lowercaseString;
-                if ([lower containsString:@"codec"]   ||
-                    [lower containsString:@"a2dp"]    ||
-                    [lower containsString:@"audio"]   ||
-                    [lower containsString:@"stream"]  ||
-                    [lower containsString:@"bitrate"] ||
-                    [lower containsString:@"format"]) {
+            Method *methods = class_copyMethodList(classes[i], &count);
+            for (unsigned int j = 0; j < count; j++) {
+                NSString *sel = NSStringFromSelector(method_getName(methods[j]));
+                NSString *selLower = sel.lowercaseString;
+                if ([selLower containsString:@"codec"]   ||
+                    [selLower containsString:@"a2dp"]    ||
+                    [selLower containsString:@"bitrate"] ||
+                    [selLower containsString:@"format"]  ||
+                    [selLower containsString:@"stream"]  ||
+                    [selLower containsString:@"audio"]) {
                     [out appendFormat:@"  %@\n", sel];
                 }
             }
-            free(methods);
+            if (count > 0) free(methods);
         }
+        free(classes);
+
+        if (out.length == 0) {
+            [out appendString:@"No BT/audio classes found in SpringBoard process\n"];
+        }
+
         NSString *dir = @"/var/mobile/Library/BTCodecTweak";
         [[NSFileManager defaultManager] createDirectoryAtPath:dir
                                   withIntermediateDirectories:YES
                                                    attributes:nil
                                                         error:nil];
-        NSError *err = nil;
-        [out writeToFile:[dir stringByAppendingPathComponent:@"methods.txt"]
+        [out writeToFile:[dir stringByAppendingPathComponent:@"sb_classes.txt"]
               atomically:YES
                 encoding:NSUTF8StringEncoding
-                   error:&err];
+                   error:nil];
     });
 
     sLog = os_log_create("com.btcodectweak", "ui");
 
-    // Check token for set_state — used by BTDevice hook to publish codec state.
-    // Separate from the dispatch listener so it's never accidentally overwritten.
     uint32_t checkStatus = notify_register_check(kBTCodecNotifName, &sSBStateToken);
     if (checkStatus != NOTIFY_STATUS_OK) {
         os_log_error(sLog, "[BTCodecUI] notify_register_check failed: %u", checkStatus);
     }
 
-    // Dispatch listener — fires BTCodec_HandleNotification on every post.
     uint32_t status = notify_register_dispatch(
         kBTCodecNotifName,
         &sListenToken,
@@ -379,16 +374,11 @@ static void BTCodec_HandleNotification(int token) {
         os_log_error(sLog, "[BTCodecUI] notify_register_dispatch failed: %u", status);
     }
 
-    // Prefs change listener — separate token, never touches sListenToken.
     notify_register_dispatch(kBTCodecPrefsChanged,
                              &sPrefsToken,
                              dispatch_get_main_queue(),
-                             ^(int __unused t) {
-        // CFPreferencesAppSynchronize called on next BTCodec_IsEnabled() invocation
-    });
+                             ^(int __unused t) {});
 
-    // Route change belt-and-suspenders — 2-second delay lets AVDTP renegotiation
-    // settle before reading daemon state.
     [[NSNotificationCenter defaultCenter]
         addObserverForName:AVAudioSessionRouteChangeNotification
                     object:nil
@@ -416,7 +406,6 @@ static void BTCodec_HandleNotification(int token) {
         }
     }];
 
-    // Pre-warm pill window — amortises first-call allocation cost
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(3.0 * NSEC_PER_SEC)),
                    dispatch_get_main_queue(),
                    ^{ (void)[BTCodecPillWindow shared]; });
