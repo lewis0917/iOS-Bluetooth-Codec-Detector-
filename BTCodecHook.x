@@ -22,6 +22,7 @@
 
 #import <Foundation/Foundation.h>
 #import <objc/runtime.h>
+#import <objc/message.h>
 #include <substrate.h>
 #include <dlfcn.h>
 #include <notify.h>
@@ -173,8 +174,9 @@ static void *BTCodec_LogStreamThread(void *__unused arg) {
         }
 
         NSError *storeErr = nil;
+        NSError * __autoreleasing *errPtr = &storeErr;
         id store = [OSLogStoreClass performSelector:@selector(localStoreAndReturnError:)
-                                        withObject:(id)&storeErr];
+                                        withObject:(__bridge id)(void *)errPtr];
         if (!store) {
             os_log_error(sLog, "[BTCodecDaemon] OSLogStore open failed: %@", storeErr);
             return NULL;
@@ -213,7 +215,7 @@ static void *BTCodec_LogStreamThread(void *__unused arg) {
                     for (id entry in enumerator) {
                         if (!sLogThreadRunning) break;
                         if ([entry respondsToSelector:msgSel]) {
-                            NSString *msg = [entry performSelector:msgSel];
+                            NSString *msg = ((NSString *(*)(id, SEL))objc_msgSend)(entry, msgSel);
                             BTCodec_ParseOSLogEntry(msg);
                         }
                     }
