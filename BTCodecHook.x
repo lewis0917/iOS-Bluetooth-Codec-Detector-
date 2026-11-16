@@ -173,7 +173,7 @@ static void *BTCodec_LogStreamThread(void *__unused arg) {
             return NULL;
         }
 
-        NSError *storeErr = nil;
+        NSError * __autoreleasing storeErr = nil;
         NSError * __autoreleasing *errPtr = &storeErr;
         id store = [OSLogStoreClass performSelector:@selector(localStoreAndReturnError:)
                                         withObject:(__bridge id)(void *)errPtr];
