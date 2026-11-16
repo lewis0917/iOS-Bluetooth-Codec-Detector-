@@ -4,6 +4,7 @@
 #import <UIKit/UIKit.h>
 #import <AVFoundation/AVFoundation.h>
 #import <CoreFoundation/CoreFoundation.h>
+#import <objc/runtime.h>
 #include <notify.h>
 #include <os/log.h>
 
@@ -314,6 +315,49 @@ static void BTCodec_HandleNotification(int token) {
 
 %ctor {
     if (![NSProcessInfo.processInfo.processName isEqualToString:@"SpringBoard"]) return;
+
+    // Runtime selector dump for iOS 18 BluetoothManager classes
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(5.0 * NSEC_PER_SEC)),
+                   dispatch_get_main_queue(), ^{
+        NSMutableString *out = [NSMutableString string];
+        NSArray *candidates = @[
+            @"BTDevice", @"BTAccessory", @"BTAVDevice",
+            @"BTLocalDevice", @"BTMediaPlayer", @"BTAudioController"
+        ];
+        for (NSString *className in candidates) {
+            Class cls = NSClassFromString(className);
+            if (!cls) {
+                [out appendFormat:@"%@ — not found\n", className];
+                continue;
+            }
+            [out appendFormat:@"\n=== %@ ===\n", className];
+            unsigned int count = 0;
+            Method *methods = class_copyMethodList(cls, &count);
+            for (unsigned int i = 0; i < count; i++) {
+                NSString *sel = NSStringFromSelector(method_getName(methods[i]));
+                NSString *lower = sel.lowercaseString;
+                if ([lower containsString:@"codec"]   ||
+                    [lower containsString:@"a2dp"]    ||
+                    [lower containsString:@"audio"]   ||
+                    [lower containsString:@"stream"]  ||
+                    [lower containsString:@"bitrate"] ||
+                    [lower containsString:@"format"]) {
+                    [out appendFormat:@"  %@\n", sel];
+                }
+            }
+            free(methods);
+        }
+        NSString *dir = @"/var/mobile/Library/BTCodecTweak";
+        [[NSFileManager defaultManager] createDirectoryAtPath:dir
+                                  withIntermediateDirectories:YES
+                                                   attributes:nil
+                                                        error:nil];
+        NSError *err = nil;
+        [out writeToFile:[dir stringByAppendingPathComponent:@"methods.txt"]
+              atomically:YES
+                encoding:NSUTF8StringEncoding
+                   error:&err];
+    });
 
     sLog = os_log_create("com.btcodectweak", "ui");
 
