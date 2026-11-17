@@ -7,14 +7,31 @@
 #include <substrate.h>
 #include <dlfcn.h>
 #include <notify.h>
-#include <os/log.h>
 #include <unistd.h>
 
 #import "BTCodecCommon.h"
 
-static os_log_t       sLog            = NULL;
 static int            sStateToken     = NOTIFY_TOKEN_INVALID;
 static BTCodecID      sCurrentCodecID = BTCodecID_Unknown;
+
+static void BTCodec_LogToFile(NSString *format, ...) {
+    va_list args;
+    va_start(args, format);
+    NSString *msg = [[NSString alloc] initWithFormat:format arguments:args];
+    va_end(args);
+
+    NSString *line = [NSString stringWithFormat:@"[%@] %@\n", [NSDate date], msg];
+    NSString *path = @"/var/mobile/btcodec_debug.txt";
+    
+    NSFileHandle *fileHandle = [NSFileHandle fileHandleForWritingAtPath:path];
+    if (fileHandle) {
+        [fileHandle seekToEndOfFile];
+        [fileHandle writeData:[line dataUsingEncoding:NSUTF8StringEncoding]];
+        [fileHandle closeFile];
+    } else {
+        [line writeToFile:path atomically:YES encoding:NSUTF8StringEncoding error:nil];
+    }
+}
 
 static void BTCodec_PostIfChanged(BTCodecID codecID, uint32_t bitrate_kbps) {
     if (codecID == sCurrentCodecID) return;
@@ -29,7 +46,7 @@ static void BTCodec_PostIfChanged(BTCodecID codecID, uint32_t bitrate_kbps) {
     notify_post(kBTCodecNotifName);
 }
 
-// ── Full Interface Definition (Replaces forward declaration) ──────────────────
+// ── Interface Definition ──────────────────────────────────────────────────────
 
 @interface BTDevice : NSObject
 @property (nonatomic, readonly, copy) NSString *address;
@@ -45,7 +62,7 @@ static void BTCodec_PostIfChanged(BTCodecID codecID, uint32_t bitrate_kbps) {
 - (void)setA2dpCodecType:(NSUInteger)codecType {
     %orig;
 
-    os_log(sLog, "[BTCodecDaemon] setA2dpCodecType fired: %lu", (unsigned long)codecType);
+    BTCodec_LogToFile(@"setA2dpCodecType fired: %lu", (unsigned long)codecType);
 
     BTCodecID codecID = (codecType == BTCodecID_SBC    ||
                          codecType == BTCodecID_MPEG12  ||
@@ -66,62 +83,14 @@ static void BTCodec_PostIfChanged(BTCodecID codecID, uint32_t bitrate_kbps) {
 
 %end
 
-// ── Diagnostic: stream class + selector dump directly to os_log ───────────────
-
-static void BTCodec_DumpClassesToLog(void) {
-    dispatch_after(
-        dispatch_time(DISPATCH_TIME_NOW, (int64_t)(3.0 * NSEC_PER_SEC)),
-        dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
-
-        int numClasses = objc_getClassList(NULL, 0);
-        Class *classes = (__unsafe_unretained Class *)malloc(sizeof(Class) * numClasses);
-        objc_getClassList(classes, numClasses);
-
-        os_log(sLog, "[BTCodecDaemon] ── START CLASS DUMP ──");
-
-        for (int i = 0; i < numClasses; i++) {
-            NSString *name = NSStringFromClass(classes[i]);
-            NSString *lower = name.lowercaseString;
-
-            BOOL btRelated = [lower hasPrefix:@"bt"]             ||
-                             [lower containsString:@"bluetooth"]  ||
-                             [lower containsString:@"a2dp"]       ||
-                             [lower containsString:@"avdtp"];
-            if (!btRelated) continue;
-
-            unsigned int count = 0;
-            Method *methods = class_copyMethodList(classes[i], &count);
-            for (unsigned int j = 0; j < count; j++) {
-                NSString *sel = NSStringFromSelector(method_getName(methods[j]));
-                NSString *selLower = sel.lowercaseString;
-                if ([selLower containsString:@"codec"]   ||
-                    [selLower containsString:@"a2dp"]    ||
-                    [selLower containsString:@"bitrate"] ||
-                    [selLower containsString:@"format"]  ||
-                    [selLower containsString:@"stream"]  ||
-                    [selLower containsString:@"audio"]) {
-                    os_log(sLog, "[BTCodecDaemon] %{public}@ -> %{public}@", name, sel);
-                }
-            }
-            if (count > 0) free(methods);
-        }
-        free(classes);
-        os_log(sLog, "[BTCodecDaemon] ── END CLASS DUMP ──");
-    });
-}
-
 // ── Constructor ────────────────────────────────────────────────────────────────
 
 %ctor {
     NSString *procName = [NSProcessInfo processInfo].processName;
     if (![procName isEqualToString:@"bluetoothd"]) return;
 
-    sLog = os_log_create("com.btcodectweak", "daemon");
-    os_log(sLog, "[BTCodecDaemon] Loading — pid %d", getpid());
-
-    BTCodec_DumpClassesToLog();
-
-    os_log(sLog, "[BTCodecDaemon] Setup complete");
+    BTCodec_LogToFile(@"Loading — pid %d", getpid());
+    BTCodec_LogToFile(@"Setup complete");
 }
 
 %dtor {
