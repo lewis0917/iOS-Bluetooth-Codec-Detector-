@@ -1,4 +1,5 @@
 // BTCodecHook.x — iOS 18 bluetoothd, Dopamine rootless
+// Wide-net hook configuration for CBAudioLinkQualityInfo and BTAudioSession
 
 #import <Foundation/Foundation.h>
 #import <objc/runtime.h>
@@ -46,10 +47,7 @@ static void BTCodec_PostIfChanged(BTCodecID codecID, uint32_t bitrate) {
     BTCodec_FileLog("Posted codec=%d bitrate=%u", (int)codecID, bitrate);
 }
 
-// ── CBAudioLinkQualityInfo stubs ───────────────────────────────────────────────
-// Present in bluetoothd on iOS 18 (confirmed via runtime class dump).
-// codec values logged raw so we can map them on first connection.
-
+// CBAudioLinkQualityInfo interface stubs
 @interface CBAudioLinkQualityInfo : NSObject
 @property (nonatomic, assign) NSInteger codecType;
 @property (nonatomic, assign) NSInteger bitRate;
@@ -57,19 +55,20 @@ static void BTCodec_PostIfChanged(BTCodecID codecID, uint32_t bitrate) {
 
 %hook CBAudioLinkQualityInfo
 
-- (void)setCodecType:(NSInteger)newCodecType {
-    %orig;
+- (id)init {
+    id orig = %orig;
+    BTCodec_FileLog("CBAudioLinkQualityInfo init called");
+    return orig;
+}
 
-    // Log the raw value every time so we can confirm the mapping
-    BTCodec_FileLog("CBAudioLinkQualityInfo setCodecType: %ld  bitRate: %ld",
-                    (long)newCodecType,
-                    (long)([self respondsToSelector:@selector(bitRate)] ? [self bitRate] : -1));
+- (void)setCodecType:(NSInteger)newCodecType {
+    BTCodec_FileLog("CBAudioLinkQualityInfo setCodecType fired with: %ld", (long)newCodecType);
+    %orig;
 
     BTCodecID codecID;
     switch (newCodecType) {
         case 0:  codecID = BTCodecID_SBC; break;
         case 2:  codecID = BTCodecID_AAC; break;
-        // Log unknown values so we can extend the map later
         default:
             BTCodec_FileLog("  → unknown codecType %ld — skipping post", (long)newCodecType);
             return;
@@ -83,18 +82,39 @@ static void BTCodec_PostIfChanged(BTCodecID codecID, uint32_t bitrate) {
     BTCodec_PostIfChanged(codecID, bitrate);
 }
 
+- (void)setBitRate:(NSInteger)newBitRate {
+    BTCodec_FileLog("CBAudioLinkQualityInfo setBitRate fired with: %ld", (long)newBitRate);
+    %orig;
+}
+
 %end
 
-// ── Targeted method dump for verification ─────────────────────────────────────
-// Dumps ALL selectors on the classes most likely to carry codec state,
-// so we can spot any renamed or additional hook targets.
+// BTAudioSession hooks to track stream routing lifecycle
+%hook BTAudioSession
 
+- (void)activateWithCompletion:(id)completion {
+    BTCodec_FileLog("BTAudioSession activateWithCompletion called");
+    %orig;
+}
+
+- (void)setCategory:(NSString *)category {
+    BTCodec_FileLog("BTAudioSession setCategory: %@", category);
+    %orig;
+}
+
+- (void)setMode:(NSString *)mode {
+    BTCodec_FileLog("BTAudioSession setMode: %@", mode);
+    %orig;
+}
+
+%end
+
+// Targeted method dump for verification on startup
 static void BTCodec_DumpTargetedMethods(void) {
     NSArray *targets = @[
         @"CBAudioLinkQualityInfo",
         @"AudioAccessoryDeviceInfo",
         @"AudioAccessoryDeviceConfig",
-        @"AudioAccessoryDevice",
         @"AudioDeviceManager",
         @"BluetoothDevice",
         @"BTAudioSession",
@@ -116,8 +136,6 @@ static void BTCodec_DumpTargetedMethods(void) {
 
     BTCodec_FileLog("--- targeted method dump ---\n%s", out.UTF8String);
 }
-
-// ── Constructor ────────────────────────────────────────────────────────────────
 
 %ctor {
     if (![NSProcessInfo.processInfo.processName isEqualToString:@"bluetoothd"]) return;
