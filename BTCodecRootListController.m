@@ -10,13 +10,14 @@
 
 #import "BTCodecCommon.h"
 
-static NSString *const kDomain        = @"com.btcodectweak";
-static NSString *const kPrefsChanged  = @"com.btcodectweak.prefschanged";
+static NSString *const kDomain       = @"com.btcodectweak";
+static NSString *const kPrefsChanged = @"com.btcodectweak.prefschanged";
 
 @interface BTCodecRootListController : PSListController {
     int _codecNotifyToken;
 }
 @property (nonatomic, strong) PSSpecifier *codecStatusSpecifier;
+@property (nonatomic, strong) PSSpecifier *bitrateStatusSpecifier;
 @end
 
 @implementation BTCodecRootListController
@@ -55,6 +56,7 @@ static NSString *const kPrefsChanged  = @"com.btcodectweak.prefschanged";
                             cell:PSStaticTextCell
                             edit:nil];
     [specs addObject:bitrateSpec];
+    self.bitrateStatusSpecifier = bitrateSpec;
 
     // ── Group 2: Display options ───────────────────────────────────────────────
     PSSpecifier *displayGroup = [PSSpecifier groupSpecifierWithName:@"Display"];
@@ -120,10 +122,6 @@ static NSString *const kPrefsChanged  = @"com.btcodectweak.prefschanged";
 - (void)viewWillAppear:(BOOL)animated {
     [super viewWillAppear:animated];
 
-    // Cancel any stale token from a previous appearance before re-registering.
-    // PSListController caches the VC — viewDidLoad only fires once, so
-    // pairing register/cancel on will-appear/will-disappear ensures the
-    // listener is always live while the pane is on screen and never leaks.
     if (_codecNotifyToken != NOTIFY_TOKEN_INVALID) {
         notify_cancel(_codecNotifyToken);
         _codecNotifyToken = NOTIFY_TOKEN_INVALID;
@@ -133,14 +131,26 @@ static NSString *const kPrefsChanged  = @"com.btcodectweak.prefschanged";
                              &_codecNotifyToken,
                              dispatch_get_main_queue(),
                              ^(int __unused t) {
-        if (self.codecStatusSpecifier) {
-            [self reloadSpecifier:self.codecStatusSpecifier];
-        }
+        // Smooth cross-dissolve animation when daemon posts a notification update
+        [UIView transitionWithView:self.table
+                          duration:0.25
+                           options:UIViewAnimationOptionTransitionCrossDissolve
+                        animations:^{
+            if (self.codecStatusSpecifier) {
+                [self reloadSpecifier:self.codecStatusSpecifier];
+            }
+            if (self.bitrateStatusSpecifier) {
+                [self reloadSpecifier:self.bitrateStatusSpecifier];
+            }
+        } completion:nil];
     });
 
-    // Refresh immediately in case codec changed while pane was offscreen
+    // Refresh immediately upon opening the pane
     if (self.codecStatusSpecifier) {
         [self reloadSpecifier:self.codecStatusSpecifier];
+    }
+    if (self.bitrateStatusSpecifier) {
+        [self reloadSpecifier:self.bitrateStatusSpecifier];
     }
 }
 
@@ -174,7 +184,9 @@ static NSString *const kPrefsChanged  = @"com.btcodectweak.prefschanged";
         return BTCodecStateGetID(state) == BTCodecID_AAC
              ? @"~256 kbps (est.)" : @"—";
     }
-    return [NSString stringWithFormat:@"%u kbps", bitrate];
+    // Scale raw bits-per-second (e.g. 327000) down to kbps (327)
+    uint32_t kbps = (bitrate > 1000) ? (bitrate / 1000) : bitrate;
+    return [NSString stringWithFormat:@"%u kbps", kbps];
 }
 
 - (NSString *)versionString { return @"1.0.0"; }
