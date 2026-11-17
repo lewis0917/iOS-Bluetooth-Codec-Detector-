@@ -45,6 +45,29 @@ static void BTCodec_PostIfChanged(BTCodecID codecID, uint32_t bitrate) {
     BTCodec_FileLog("Posted codec=%d bitrate=%u", (int)codecID, bitrate);
 }
 
+static void BTCodec_DumpMatchingClasses(void) {
+    int numClasses = objc_getClassList(NULL, 0);
+    if (numClasses <= 0) return;
+    
+    Class *classes = (Class *)malloc(sizeof(Class) * numClasses);
+    numClasses = objc_getClassList(classes, numClasses);
+    
+    BTCodec_FileLog("=== SCANNING FOR IOS 18 AUDIO CLASSES ===");
+    for (int i = 0; i < numClasses; i++) {
+        const char *className = class_getName(classes[i]);
+        NSString *name = [NSString stringWithUTF8String:className];
+        
+        if ([name rangeOfString:@"Audio" options:NSCaseInsensitiveSearch].location != NSNotFound ||
+            [name rangeOfString:@"Codec" options:NSCaseInsensitiveSearch].location != NSNotFound ||
+            [name rangeOfString:@"Stream" options:NSCaseInsensitiveSearch].location != NSNotFound ||
+            [name rangeOfString:@"Link" options:NSCaseInsensitiveSearch].location != NSNotFound) {
+            BTCodec_FileLog("Found matching class: %s", className);
+        }
+    }
+    BTCodec_FileLog("=== END SCAN ===");
+    free(classes);
+}
+
 // CBAudioLinkQualityInfo interface stubs
 @interface CBAudioLinkQualityInfo : NSObject
 @property (nonatomic, assign) NSInteger codecType;
@@ -140,6 +163,7 @@ static void BTCodec_PostIfChanged(BTCodecID codecID, uint32_t bitrate) {
 %ctor {
     if (![NSProcessInfo.processInfo.processName isEqualToString:@"bluetoothd"]) return;
     BTCodec_FileLog("BTCodecDaemon loaded in bluetoothd (pid %d)", getpid());
+    BTCodec_DumpMatchingClasses();
 }
 
 %dtor {
