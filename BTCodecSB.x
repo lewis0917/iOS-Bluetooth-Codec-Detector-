@@ -20,8 +20,8 @@ static void BTCodec_FetchAndUpdateCurrentState(void) {
     
     if (sClientNotifyToken != NOTIFY_TOKEN_INVALID) {
         notify_get_state(sClientNotifyToken, &state);
-        BTCodecID codecID = BTCodecGetID(state);
-        uint32_t bitrate = BTCodecGetBitrate(state);
+        BTCodecID codecID = BTCodecStateGetID(state);
+        uint32_t bitrate = BTCodecStateGetBitrate(state);
         
         dispatch_async(dispatch_get_main_queue(), ^{
             [[BTCodecManager sharedManager] updateCodecDisplayWithID:codecID bitrate:bitrate];
@@ -41,8 +41,8 @@ static void BTCodec_FetchAndUpdateCurrentState(void) {
         uint64_t state = 0;
         notify_get_state(token, &state);
         
-        BTCodecID codecID = BTCodecGetID(state);
-        uint32_t bitrate = BTCodecGetBitrate(state);
+        BTCodecID codecID = BTCodecStateGetID(state);
+        uint32_t bitrate = BTCodecStateGetBitrate(state);
         
         dispatch_async(dispatch_get_main_queue(), ^{
             [[BTCodecManager sharedManager] updateCodecDisplayWithID:codecID bitrate:bitrate];
