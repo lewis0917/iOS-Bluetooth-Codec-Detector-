@@ -8,29 +8,45 @@
 #include <dlfcn.h>
 #include <notify.h>
 #include <unistd.h>
+#include <stdio.h>
+#include <time.h>
+#include <stdarg.h>
 
 #import "BTCodecCommon.h"
 
 static int            sStateToken     = NOTIFY_TOKEN_INVALID;
 static BTCodecID      sCurrentCodecID = BTCodecID_Unknown;
 
-static void BTCodec_LogToFile(NSString *format, ...) {
+#define BTCODEC_LOG_PATH "/var/tmp/btcodec_debug.txt"
+
+static void BTCodec_LogToFile(const char *fmt, ...) {
+    FILE *f = fopen(BTCODEC_LOG_PATH, "a");
+    if (!f) return;
+
+    time_t now = time(NULL);
+    struct tm tm;
+    localtime_r(&now, &tm);
+    char ts[32];
+    strftime(ts, sizeof(ts), "%Y-%m-%d %H:%M:%S", &tm);
+
+    fprintf(f, "[%s] ", ts);
+
+    va_list args;
+    va_start(args, fmt);
+    vfprintf(f, fmt, args);
+    va_end(args);
+
+    fputc('\n', f);
+    fclose(f);
+}
+
+static void BTCodec_Log(NSString *format, ...) {
     va_list args;
     va_start(args, format);
     NSString *msg = [[NSString alloc] initWithFormat:format arguments:args];
     va_end(args);
 
-    NSString *line = [NSString stringWithFormat:@"[%@] %@\n", [NSDate date], msg];
-    NSString *path = @"/var/tmp/btcodec_debug.txt";
-    
-    NSFileHandle *fileHandle = [NSFileHandle fileHandleForWritingAtPath:path];
-    if (fileHandle) {
-        [fileHandle seekToEndOfFile];
-        [fileHandle writeData:[line dataUsingEncoding:NSUTF8StringEncoding]];
-        [fileHandle closeFile];
-    } else {
-        [line writeToFile:path atomically:YES encoding:NSUTF8StringEncoding error:nil];
-    }
+    BTCodec_LogToFile("%s", msg.UTF8String);
 }
 
 static void BTCodec_PostIfChanged(BTCodecID codecID, uint32_t bitrate_kbps) {
@@ -44,6 +60,9 @@ static void BTCodec_PostIfChanged(BTCodecID codecID, uint32_t bitrate_kbps) {
     uint64_t state = BTCodecMakeState(codecID, bitrate_kbps);
     notify_set_state(sStateToken, state);
     notify_post(kBTCodecNotifName);
+
+    BTCodec_Log(@"Posted state → codec=%@ (%u), bitrate=%u kbps",
+                BTCodecIDToString(codecID), codecID, bitrate_kbps);
 }
 
 // ── Interface Definition ──────────────────────────────────────────────────────
@@ -62,36 +81,100 @@ static void BTCodec_PostIfChanged(BTCodecID codecID, uint32_t bitrate_kbps) {
 - (void)setA2dpCodecType:(NSUInteger)codecType {
     %orig;
 
-    BTCodec_LogToFile(@"setA2dpCodecType fired: %lu", (unsigned long)codecType);
+    BTCodec_Log(@"=== setA2dpCodecType: %lu ===", (unsigned long)codecType);
+    BTCodec_Log(@"  self     = %p", self);
+    BTCodec_Log(@"  address  = %@", [self respondsToSelector:@selector(address)] ? [self address] : @"n/a");
+    BTCodec_Log(@"  name     = %@", [self respondsToSelector:@selector(name)]    ? [self name]    : @"n/a");
 
-    BTCodecID codecID = (codecType == BTCodecID_SBC    ||
-                         codecType == BTCodecID_MPEG12  ||
-                         codecType == BTCodecID_AAC    ||
-                         codecType == BTCodecID_ATRAC  ||
-                         codecType == BTCodecID_VendorExt)
-                      ? (BTCodecID)(uint8_t)codecType
-                      : BTCodecID_Unknown;
+    // ── Diagnostic: probe common bitrate-related selectors ───────────────────
+    NSArray *bitrateSelectors = @[
+        @"a2dpNegotiatedBitrate",
+        @"negotiatedBitrate",
+        @"bitrate",
+        @"a2dpBitrate",
+        @"codecBitrate",
+        @"maxBitrate",
+        @"vbrMaxBitrate",
+        @"a2dpCodecBitrate",
+        @"negotiatedA2DPBitrate"
+    ];
 
+    for (NSString *selName in bitrateSelectors) {
+        SEL sel = NSSelectorFromString(selName);
+        if ([self respondsToSelector:sel]) {
+            BTCodec_Log(@"  selector '%@' exists", selName);
+            @try {
+                NSUInteger val = ((NSUInteger (*)(id, SEL))objc_msgSend)(self, sel);
+                BTCodec_Log(@"    → value: %lu", (unsigned long)val);
+            } @catch (NSException *e) {
+                BTCodec_Log(@"    → call failed: %@", e.reason ?: @"unknown");
+            }
+        }
+    }
+
+    // ── Map incoming codecType to our BTCodecID ──────────────────────────────
+    // Note: Apple’s internal values often follow AVDTP (0 = SBC, 2 = AAC, 0xFF = Vendor)
+    BTCodecID codecID = BTCodecID_Unknown;
+    switch (codecType) {
+        case 0:   // common for SBC
+        case 1:   // some internal mappings
+            codecID = BTCodecID_SBC;
+            break;
+        case 2:   // classic AVDTP MPEG-2/4 AAC
+        case 4:   // your previous enum value
+            codecID = BTCodecID_AAC;
+            break;
+        case 8:
+            codecID = BTCodecID_ATRAC;
+            break;
+        case 255:
+        case 0xFF:
+            codecID = BTCodecID_VendorExt;
+            break;
+        default:
+            codecID = BTCodecID_Unknown;
+            BTCodec_Log(@"  Unknown codecType raw value: %lu", (unsigned long)codecType);
+            break;
+    }
+
+    // ── Bitrate extraction ───────────────────────────────────────────────────
     uint32_t bitrate = 0;
     if ([self respondsToSelector:@selector(a2dpNegotiatedBitrate)]) {
         bitrate = (uint32_t)[self a2dpNegotiatedBitrate];
     }
-    if (codecID == BTCodecID_AAC && bitrate == 0) bitrate = 256;
+
+    // Temporary fallback while we discover the real property
+    if (codecID == BTCodecID_AAC && bitrate == 0) {
+        bitrate = 256;
+        BTCodec_Log(@"  Using AAC fallback bitrate 256 kbps");
+    }
 
     BTCodec_PostIfChanged(codecID, bitrate);
 }
 
 %end
 
-// ── Constructor ────────────────────────────────────────────────────────────────
+// ── Constructor ───────────────────────────────────────────────────────────────
 
 %ctor {
-    NSString *procName = [NSProcessInfo processInfo].processName;
-    BTCodec_LogToFile(@"Constructor fired for process: %@", procName);
-    
-    if (![procName isEqualToString:@"bluetoothd"]) return;
+    BTCodec_LogToFile("Constructor entered (pid %d)", getpid());
 
-    BTCodec_LogToFile(@"bluetoothd matched! Loading dylib successfully.");
+    NSString *procName = nil;
+    @try {
+        procName = [NSProcessInfo processInfo].processName;
+    } @catch (NSException *e) {
+        BTCodec_LogToFile("Failed to get processName: %s", e.reason.UTF8String ?: "unknown");
+        return;
+    }
+
+    BTCodec_Log(@"Constructor fired for process: %@", procName);
+
+    if (![procName isEqualToString:@"bluetoothd"]) {
+        BTCodec_LogToFile("Not bluetoothd — exiting constructor");
+        return;
+    }
+
+    BTCodec_LogToFile("bluetoothd matched — dylib loaded successfully");
 }
 
 %dtor {
