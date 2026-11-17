@@ -2,6 +2,7 @@
 
 #import <Foundation/Foundation.h>
 #import <UIKit/UIKit.h>
+#import <AVFoundation/AVFoundation.h>
 #import <CoreFoundation/CoreFoundation.h>
 #import <objc/runtime.h>
 #include <notify.h>
@@ -29,16 +30,11 @@ static BOOL BTCodec_AlertOnSBC(void) {
     return r;
 }
 
-// ── iOS 18 framework class declarations ─────────────────────────────────────
-
-@interface MRContentItemMetadataAudioFormat : NSObject
-@property (nonatomic, assign) NSInteger codec;
-@property (nonatomic, assign) NSInteger bitrate;
-@end
+// ── CBAudioLinkQualityInfo interface stub ──────────────────────────────────────
 
 @interface CBAudioLinkQualityInfo : NSObject
-@property (nonatomic, assign) NSInteger codecType;
-@property (nonatomic, assign) NSInteger bitRate;
+@property (nonatomic, assign) int codecType;
+@property (nonatomic, assign) int bitRate;
 @end
 
 // ── Forward declaration ────────────────────────────────────────────────────────
@@ -56,67 +52,58 @@ static int      sListenToken  = NOTIFY_TOKEN_INVALID;  // dispatch listener
 static int      sPrefsToken   = NOTIFY_TOKEN_INVALID;  // prefs change listener
 static int      sSBStateToken = NOTIFY_TOKEN_INVALID;  // check token for set_state
 
-// ── iOS 18 Hook Targets ─────────────────────────────────────────────────────
+// ── File-writing debug helper ──────────────────────────────────────────────────
 
-%hook MRContentItemMetadataAudioFormat
-
-- (void)setCodec:(NSInteger)newCodec {
-    os_log_info(sLog, "[BTCodecSB] MRContentItemMetadataAudioFormat setCodec fired with raw codec: %ld", (long)newCodec);
-    %orig;
-
-    BTCodecID codecID;
-    switch (newCodec) {
-        case 0:  codecID = BTCodecID_SBC; break;
-        case 2:  codecID = BTCodecID_AAC; break;
-        default: return;
+static void BTCodec_WriteDebugLog(NSString *text) {
+    NSString *dir = @"/var/mobile/Library/BTCodecTweak";
+    [[NSFileManager defaultManager] createDirectoryAtPath:dir
+                              withIntermediateDirectories:YES
+                                               attributes:nil
+                                                    error:nil];
+    NSString *path = [dir stringByAppendingPathComponent:@"link_debug.txt"];
+    NSString *entry = [NSString stringWithFormat:@"[%@] %@\n", [NSDate date], text];
+    
+    NSFileHandle *handle = [NSFileHandle fileHandleForWritingAtPath:path];
+    if (handle) {
+        [handle seekToEndOfFile];
+        [handle writeData:[entry dataUsingEncoding:NSUTF8StringEncoding]];
+        [handle closeFile];
+    } else {
+        [entry writeToFile:path atomically:YES encoding:NSUTF8StringEncoding error:nil];
     }
-
-    NSInteger rawBitrate = [self respondsToSelector:@selector(bitrate)]
-                         ? [self bitrate] : 0;
-    uint32_t bitrate = (rawBitrate > 0)
-                     ? (uint32_t)rawBitrate
-                     : (codecID == BTCodecID_AAC ? 256 : 0);
-
-    os_log_info(sLog, "[BTCodecSB] Processed codecID: %d, bitrate: %u", (int)codecID, bitrate);
-
-    if (sSBStateToken != NOTIFY_TOKEN_INVALID) {
-        notify_set_state(sSBStateToken, BTCodecMakeState(codecID, bitrate));
-    }
-    notify_post(kBTCodecNotifName);
 }
 
-%end
+// ── CBAudioLinkQualityInfo hook — alternative SpringBoard telemetry source ─────
 
 %hook CBAudioLinkQualityInfo
 
-- (void)setCodecType:(NSInteger)newCodecType {
-    os_log_info(sLog, "[BTCodecSB] CBAudioLinkQualityInfo setCodecType fired with raw type: %ld", (long)newCodecType);
+- (void)setCodecType:(int)codecType {
+    BTCodec_WriteDebugLog([NSString stringWithFormat:@"setCodecType: %d", codecType]);
     %orig;
 
-    BTCodecID codecID;
-    switch (newCodecType) {
-        case 0:  codecID = BTCodecID_SBC; break;
-        case 2:  codecID = BTCodecID_AAC; break;
-        default: return;
+    BTCodecID codecID = BTCodecID_Unknown;
+    if (codecType == 2 || codecType == 0x02) codecID = BTCodecID_AAC;
+    else if (codecType == 0 || codecType == 0x00) codecID = BTCodecID_SBC;
+
+    if (codecID != BTCodecID_Unknown) {
+        uint32_t bitrate = (uint32_t)[self bitRate];
+        if (codecID == BTCodecID_AAC && bitrate == 0) bitrate = 256;
+
+        if (sSBStateToken != NOTIFY_TOKEN_INVALID) {
+            notify_set_state(sSBStateToken, BTCodecMakeState(codecID, bitrate));
+        }
+        notify_post(kBTCodecNotifName);
     }
+}
 
-    NSInteger rawBitrate = [self respondsToSelector:@selector(bitRate)]
-                         ? [self bitRate] : 0;
-    uint32_t bitrate = (rawBitrate > 0)
-                     ? (uint32_t)rawBitrate
-                     : (codecID == BTCodecID_AAC ? 256 : 0);
-
-    os_log_info(sLog, "[BTCodecSB] Processed codecID: %d, bitrate: %u", (int)codecID, bitrate);
-
-    if (sSBStateToken != NOTIFY_TOKEN_INVALID) {
-        notify_set_state(sSBStateToken, BTCodecMakeState(codecID, bitrate));
-    }
-    notify_post(kBTCodecNotifName);
+- (void)setBitRate:(int)bitRate {
+    BTCodec_WriteDebugLog([NSString stringWithFormat:@"setBitRate: %d", bitRate]);
+    %orig;
 }
 
 %end
 
-// ── Pill window implementation ────────────────────────────────────────────────
+// ── Pill window ────────────────────────────────────────────────────────────────
 
 @implementation BTCodecPillWindow {
     UIView              *_pill;
@@ -292,7 +279,7 @@ static int      sSBStateToken = NOTIFY_TOKEN_INVALID;  // check token for set_st
         DISPATCH_SOURCE_TYPE_TIMER, 0, 0, dispatch_get_main_queue());
     dispatch_source_set_timer(timer,
         dispatch_time(DISPATCH_TIME_NOW, (int64_t)(delay * NSEC_PER_SEC)),
-        0,
+        DISPATCH_TIME_FOREVER,
         (int64_t)(0.1 * NSEC_PER_SEC));
     __weak BTCodecPillWindow *weakSelf = self;
     dispatch_source_set_event_handler(timer, ^{
@@ -356,6 +343,33 @@ static void BTCodec_HandleNotification(int token) {
                              &sPrefsToken,
                              dispatch_get_main_queue(),
                              ^(int __unused t) {});
+
+    [[NSNotificationCenter defaultCenter]
+        addObserverForName:AVAudioSessionRouteChangeNotification
+                    object:nil
+                     queue:[NSOperationQueue mainQueue]
+                usingBlock:^(NSNotification *note) {
+        NSNumber *reason = note.userInfo[AVAudioSessionRouteChangeReasonKey];
+        if (reason.unsignedIntegerValue != 1 &&
+            reason.unsignedIntegerValue != 3) return;
+
+        BOOL hasA2DP = NO;
+        for (AVAudioSessionPortDescription *port in
+             [AVAudioSession sharedInstance].currentRoute.outputs) {
+            if ([port.portType isEqualToString:AVAudioSessionPortBluetoothA2DP]) {
+                hasA2DP = YES; break;
+            }
+        }
+
+        if (hasA2DP && sListenToken != NOTIFY_TOKEN_INVALID) {
+            int capturedToken = sListenToken;
+            dispatch_after(
+                dispatch_time(DISPATCH_TIME_NOW, (int64_t)(2.0 * NSEC_PER_SEC)),
+                dispatch_get_main_queue(), ^{
+                BTCodec_HandleNotification(capturedToken);
+            });
+        }
+    }];
 
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(3.0 * NSEC_PER_SEC)),
                    dispatch_get_main_queue(),
