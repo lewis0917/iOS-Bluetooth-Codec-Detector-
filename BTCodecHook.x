@@ -1,5 +1,5 @@
 // BTCodecHook.x — iOS 18 bluetoothd, Dopamine rootless
-// Wide-net hook configuration for CBAudioLinkQualityInfo and BTAudioSession
+// Updated with iOS 18 codecType mapping (case 10 -> AAC)
 
 #import <Foundation/Foundation.h>
 #import <objc/runtime.h>
@@ -62,13 +62,20 @@ static void BTCodec_PostIfChanged(BTCodecID codecID, uint32_t bitrate) {
 }
 
 - (void)setCodecType:(NSInteger)newCodecType {
-    BTCodec_FileLog("CBAudioLinkQualityInfo setCodecType fired with: %ld", (long)newCodecType);
+    BTCodec_FileLog("CBAudioLinkQualityInfo setCodecType fired with: %ld  bitRate: %ld",
+                    (long)newCodecType,
+                    (long)([self respondsToSelector:@selector(bitRate)] ? [self bitRate] : -1));
     %orig;
 
     BTCodecID codecID;
     switch (newCodecType) {
-        case 0:  codecID = BTCodecID_SBC; break;
-        case 2:  codecID = BTCodecID_AAC; break;
+        case 0:  
+            codecID = BTCodecID_SBC; 
+            break;
+        case 2:  
+        case 10: // iOS 18 active AAC codec mapping
+            codecID = BTCodecID_AAC; 
+            break;
         default:
             BTCodec_FileLog("  → unknown codecType %ld — skipping post", (long)newCodecType);
             return;
@@ -77,7 +84,7 @@ static void BTCodec_PostIfChanged(BTCodecID codecID, uint32_t bitrate) {
     NSInteger rawBitrate = [self respondsToSelector:@selector(bitRate)] ? [self bitRate] : 0;
     uint32_t bitrate = (rawBitrate > 0)
                      ? (uint32_t)rawBitrate
-                     : (codecID == BTCodecID_AAC ? 256 : 0);
+                     : (codecID == BTCodecID_AAC ? 256000 : 0);
 
     BTCodec_PostIfChanged(codecID, bitrate);
 }
