@@ -15,8 +15,8 @@
 
 #import "BTCodecCommon.h"
 
-static int            sStateToken     = NOTIFY_TOKEN_INVALID;
-static BTCodecID      sCurrentCodecID = BTCodecID_Unknown;
+__attribute__((unused)) static int            sStateToken     = NOTIFY_TOKEN_INVALID;
+__attribute__((unused)) static BTCodecID      sCurrentCodecID = BTCodecID_Unknown;
 
 #define BTCODEC_LOG_PATH "/var/tmp/btcodec_debug.txt"
 
@@ -91,7 +91,6 @@ static void BTCodec_Log(NSString *format, ...) {
     }
 }
 
-// Also hook general connection or stream init if they fire
 - (void)connect {
     %orig;
     BTCodec_Log(@"[BluetoothDevice] connect fired for name: %@ (%@)", 
@@ -101,7 +100,7 @@ static void BTCodec_Log(NSString *format, ...) {
 
 %end
 
-// ── Constructor ────────────────────────────────________________───────────────
+// ── Constructor ───────────────────────────────────────────────────────────────
 
 %ctor {
     BTCodec_LogToFile("Constructor entered (pid %d)", getpid());
