@@ -49,6 +49,17 @@ static void BTCodec_Log(NSString *format, ...) {
     BTCodec_LogToFile("%s", msg.UTF8String);
 }
 
+static const char *BTCodecIDDescription(BTCodecID codecID) {
+    switch (codecID) {
+        case BTCodecID_SBC:       return "SBC";
+        case BTCodecID_MPEG12:    return "MPEG-1/2";
+        case BTCodecID_AAC:       return "AAC";
+        case BTCodecID_ATRAC:     return "ATRAC";
+        case BTCodecID_VendorExt: return "Vendor";
+        default:                  return "Unknown";
+    }
+}
+
 static void BTCodec_PostIfChanged(BTCodecID codecID, uint32_t bitrate_kbps) {
     if (codecID == sCurrentCodecID) return;
     sCurrentCodecID = codecID;
@@ -61,8 +72,8 @@ static void BTCodec_PostIfChanged(BTCodecID codecID, uint32_t bitrate_kbps) {
     notify_set_state(sStateToken, state);
     notify_post(kBTCodecNotifName);
 
-    BTCodec_Log(@"Posted state → codec=%@ (%u), bitrate=%u kbps",
-                BTCodecIDToString(codecID), codecID, bitrate_kbps);
+    BTCodec_Log(@"Posted state → codec=%s (%u), bitrate=%u kbps",
+                BTCodecIDDescription(codecID), codecID, bitrate_kbps);
 }
 
 // ── Interface Definition ──────────────────────────────────────────────────────
@@ -113,22 +124,20 @@ static void BTCodec_PostIfChanged(BTCodecID codecID, uint32_t bitrate_kbps) {
     }
 
     // ── Map incoming codecType to our BTCodecID ──────────────────────────────
-    // Note: Apple’s internal values often follow AVDTP (0 = SBC, 2 = AAC, 0xFF = Vendor)
     BTCodecID codecID = BTCodecID_Unknown;
     switch (codecType) {
-        case 0:   // common for SBC
-        case 1:   // some internal mappings
+        case 0:
+        case 1:
             codecID = BTCodecID_SBC;
             break;
-        case 2:   // classic AVDTP MPEG-2/4 AAC
-        case 4:   // your previous enum value
+        case 2:
+        case 4:
             codecID = BTCodecID_AAC;
             break;
         case 8:
             codecID = BTCodecID_ATRAC;
             break;
         case 255:
-        case 0xFF:
             codecID = BTCodecID_VendorExt;
             break;
         default:
@@ -143,7 +152,6 @@ static void BTCodec_PostIfChanged(BTCodecID codecID, uint32_t bitrate_kbps) {
         bitrate = (uint32_t)[self a2dpNegotiatedBitrate];
     }
 
-    // Temporary fallback while we discover the real property
     if (codecID == BTCodecID_AAC && bitrate == 0) {
         bitrate = 256;
         BTCodec_Log(@"  Using AAC fallback bitrate 256 kbps");
