@@ -1,5 +1,5 @@
 // BTCodecHook.x — iOS 18 bluetoothd, Dopamine rootless
-// Updated with iOS 18 codecType mapping (case 10 -> AAC)
+// Updated with CBAudioLinkQualityInfo getter hooks for passive telemetry polling
 
 #import <Foundation/Foundation.h>
 #import <objc/runtime.h>
@@ -59,6 +59,27 @@ static void BTCodec_PostIfChanged(BTCodecID codecID, uint32_t bitrate) {
     id orig = %orig;
     BTCodec_FileLog("CBAudioLinkQualityInfo init called");
     return orig;
+}
+
+// Intercept getter queries to passively catch stream state during playback
+- (NSInteger)codecType {
+    NSInteger origCodec = %orig;
+    
+    BTCodecID codecID;
+    switch (origCodec) {
+        case 0:  codecID = BTCodecID_SBC; break;
+        case 2:  
+        case 10: codecID = BTCodecID_AAC; break;
+        default: codecID = BTCodecID_Unknown; break;
+    }
+
+    if (codecID != BTCodecID_Unknown) {
+        NSInteger rawBitrate = [self respondsToSelector:@selector(bitRate)] ? [self bitRate] : 0;
+        uint32_t bitrate = (rawBitrate > 0) ? (uint32_t)rawBitrate : 256000;
+        BTCodec_PostIfChanged(codecID, bitrate);
+    }
+    
+    return origCodec;
 }
 
 - (void)setCodecType:(NSInteger)newCodecType {
