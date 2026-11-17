@@ -1,12 +1,9 @@
 // BTCodecHook.x — iOS 18 bluetoothd, Dopamine rootless
-// Updated with CBAudioLinkQualityInfo getter hooks for passive telemetry polling
-
 #import <Foundation/Foundation.h>
 #import <objc/runtime.h>
 #import <objc/message.h>
 #include <substrate.h>
 #include <notify.h>
-#include <os/log.h>
 #include <stdio.h>
 #include <time.h>
 
@@ -16,7 +13,7 @@
 
 static int       sStateToken     = NOTIFY_TOKEN_INVALID;
 static BTCodecID sCurrentCodecID = BTCodecID_Unknown;
-static os_log_t  sLog            = NULL;
+static uint32_t  sCurrentBitrate = 0;
 
 static void BTCodec_FileLog(const char *fmt, ...) {
     FILE *f = fopen(LOG_PATH, "a");
@@ -36,8 +33,9 @@ static void BTCodec_FileLog(const char *fmt, ...) {
 }
 
 static void BTCodec_PostIfChanged(BTCodecID codecID, uint32_t bitrate) {
-    if (codecID == sCurrentCodecID) return;
+    if (codecID == sCurrentCodecID && sCurrentBitrate == bitrate) return;
     sCurrentCodecID = codecID;
+    sCurrentBitrate = bitrate;
 
     if (sStateToken == NOTIFY_TOKEN_INVALID) {
         notify_register_check(kBTCodecNotifName, &sStateToken);
@@ -61,10 +59,8 @@ static void BTCodec_PostIfChanged(BTCodecID codecID, uint32_t bitrate) {
     return orig;
 }
 
-// Intercept getter queries to passively catch stream state during playback
 - (NSInteger)codecType {
     NSInteger origCodec = %orig;
-    
     BTCodecID codecID;
     switch (origCodec) {
         case 0:  codecID = BTCodecID_SBC; break;
@@ -75,7 +71,7 @@ static void BTCodec_PostIfChanged(BTCodecID codecID, uint32_t bitrate) {
 
     if (codecID != BTCodecID_Unknown) {
         NSInteger rawBitrate = [self respondsToSelector:@selector(bitRate)] ? [self bitRate] : 0;
-        uint32_t bitrate = (rawBitrate > 0) ? (uint32_t)rawBitrate : 256000;
+        uint32_t bitrate = (rawBitrate > 0) ? (uint32_t)rawBitrate : 327000;
         BTCodec_PostIfChanged(codecID, bitrate);
     }
     
@@ -90,22 +86,14 @@ static void BTCodec_PostIfChanged(BTCodecID codecID, uint32_t bitrate) {
 
     BTCodecID codecID;
     switch (newCodecType) {
-        case 0:  
-            codecID = BTCodecID_SBC; 
-            break;
+        case 0:  codecID = BTCodecID_SBC; break;
         case 2:  
-        case 10: // iOS 18 active AAC codec mapping
-            codecID = BTCodecID_AAC; 
-            break;
-        default:
-            BTCodec_FileLog("  → unknown codecType %ld — skipping post", (long)newCodecType);
-            return;
+        case 10: codecID = BTCodecID_AAC; break;
+        default: return;
     }
 
     NSInteger rawBitrate = [self respondsToSelector:@selector(bitRate)] ? [self bitRate] : 0;
-    uint32_t bitrate = (rawBitrate > 0)
-                     ? (uint32_t)rawBitrate
-                     : (codecID == BTCodecID_AAC ? 256000 : 0);
+    uint32_t bitrate = (rawBitrate > 0) ? (uint32_t)rawBitrate : (codecID == BTCodecID_AAC ? 327000 : 212000);
 
     BTCodec_PostIfChanged(codecID, bitrate);
 }
@@ -113,6 +101,18 @@ static void BTCodec_PostIfChanged(BTCodecID codecID, uint32_t bitrate) {
 - (void)setBitRate:(NSInteger)newBitRate {
     BTCodec_FileLog("CBAudioLinkQualityInfo setBitRate fired with: %ld", (long)newBitRate);
     %orig;
+
+    if (newBitRate > 0) {
+        NSInteger currentCodec = [self respondsToSelector:@selector(codecType)] ? [self codecType] : 10;
+        BTCodecID codecID;
+        switch (currentCodec) {
+            case 0:  codecID = BTCodecID_SBC; break;
+            case 2:  
+            case 10: codecID = BTCodecID_AAC; break;
+            default: codecID = BTCodecID_AAC; break;
+        }
+        BTCodec_PostIfChanged(codecID, (uint32_t)newBitRate);
+    }
 }
 
 %end
@@ -137,40 +137,9 @@ static void BTCodec_PostIfChanged(BTCodecID codecID, uint32_t bitrate) {
 
 %end
 
-// Targeted method dump for verification on startup
-static void BTCodec_DumpTargetedMethods(void) {
-    NSArray *targets = @[
-        @"CBAudioLinkQualityInfo",
-        @"AudioAccessoryDeviceInfo",
-        @"AudioAccessoryDeviceConfig",
-        @"AudioDeviceManager",
-        @"BluetoothDevice",
-        @"BTAudioSession",
-        @"BTAudioRoutingRequest",
-    ];
-
-    NSMutableString *out = [NSMutableString string];
-    for (NSString *name in targets) {
-        Class cls = NSClassFromString(name);
-        [out appendFormat:@"\n=== %@ %@ ===\n", name, cls ? @"(found)" : @"(not found)"];
-        if (!cls) continue;
-        unsigned int count = 0;
-        Method *methods = class_copyMethodList(cls, &count);
-        for (unsigned int i = 0; i < count; i++) {
-            [out appendFormat:@"  %@\n", NSStringFromSelector(method_getName(methods[i]))];
-        }
-        if (count > 0) free(methods);
-    }
-
-    BTCodec_FileLog("--- targeted method dump ---\n%s", out.UTF8String);
-}
-
 %ctor {
     if (![NSProcessInfo.processInfo.processName isEqualToString:@"bluetoothd"]) return;
-
-    sLog = os_log_create("com.btcodectweak", "daemon");
     BTCodec_FileLog("BTCodecDaemon loaded in bluetoothd (pid %d)", getpid());
-    BTCodec_DumpTargetedMethods();
 }
 
 %dtor {
