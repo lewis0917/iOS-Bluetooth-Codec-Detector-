@@ -1,5 +1,5 @@
 // BTCodecHook.x
-// Discovery version – injected into bluetoothd
+// Hooking BluetoothDevice & probing AAC capabilities on iOS 18
 
 #import <Foundation/Foundation.h>
 #import <objc/runtime.h>
@@ -49,121 +49,59 @@ static void BTCodec_Log(NSString *format, ...) {
     BTCodec_LogToFile("%s", msg.UTF8String);
 }
 
-__attribute__((unused))
-static void BTCodec_PostIfChanged(BTCodecID codecID, uint32_t bitrate_kbps) {
-    if (codecID == sCurrentCodecID) return;
-    sCurrentCodecID = codecID;
+// ── Interface Definition for BluetoothDevice ──────────────────────────────────
 
-    if (sStateToken == NOTIFY_TOKEN_INVALID) {
-        notify_register_check(kBTCodecNotifName, &sStateToken);
-    }
-
-    uint64_t state = BTCodecMakeState(codecID, bitrate_kbps);
-    notify_set_state(sStateToken, state);
-    notify_post(kBTCodecNotifName);
-}
-
-// ── Helpers ───────────────────────────────────────────────────────────────────
-
-static BOOL BTCodec_SelectorLooksInteresting(const char *name) {
-    if (!name) return NO;
-
-    char lower[256];
-    size_t len = strlen(name);
-    if (len >= sizeof(lower)) len = sizeof(lower) - 1;
-    for (size_t i = 0; i < len; i++) {
-        lower[i] = (char)tolower((unsigned char)name[i]);
-    }
-    lower[len] = '\0';
-
-    const char *keywords[] = {
-        "codec", "a2dp", "avdtp", "bitrate", "bit rate", "audio",
-        "stream", "sbc", "aac", "mpeg", "atrac", "negotiate",
-        "configured", "configuration", "vendor", NULL
-    };
-
-    for (int i = 0; keywords[i]; i++) {
-        if (strstr(lower, keywords[i])) return YES;
-    }
-    return NO;
-}
-
-static void BTCodec_DumpInterestingMethods(Class cls) {
-    if (!cls) {
-        BTCodec_LogToFile("Class not found");
-        return;
-    }
-
-    BTCodec_LogToFile("--- Dumping interesting methods on %s ---", class_getName(cls));
-
-    unsigned int count = 0;
-    Method *methods = class_copyMethodList(cls, &count);
-
-    int found = 0;
-    for (unsigned int i = 0; i < count; i++) {
-        SEL sel = method_getName(methods[i]);
-        const char *name = sel_getName(sel);
-        if (BTCodec_SelectorLooksInteresting(name)) {
-            BTCodec_LogToFile("  %s", name);
-            found++;
-        }
-    }
-
-    free(methods);
-    BTCodec_LogToFile("--- Found %d interesting methods ---", found);
-}
-
-// ── Interface ─────────────────────────────────────────────────────────────────
-
-@interface BTDevice : NSObject
-@property (nonatomic, readonly, copy) NSString *address;
-@property (nonatomic, readonly, copy) NSString *name;
-@property (nonatomic, assign) NSUInteger a2dpCodecType;
-@property (nonatomic, assign) NSUInteger a2dpNegotiatedBitrate;
+@interface BluetoothDevice : NSObject
+- (NSString *)address;
+- (NSString *)name;
+- (BOOL)isAppleAudioDevice;
+- (NSInteger)getAACCapabilityInteger:(NSInteger)arg;
+- (NSUInteger)getAACCapabilityBits;
 @end
 
 // ── Hooks ─────────────────────────────────────────────────────────────────────
 
-%hook BTDevice
+%hook BluetoothDevice
 
 - (void)setA2dpCodecType:(NSUInteger)codecType {
     %orig;
-    BTCodec_Log(@"!!! setA2dpCodecType: fired → %lu", (unsigned long)codecType);
+    BTCodec_Log(@"[BluetoothDevice] setA2dpCodecType: %lu", (unsigned long)codecType);
+
+    BTCodec_Log(@"  isAppleAudioDevice: %d", [self respondsToSelector:@selector(isAppleAudioDevice)] ? [self isAppleAudioDevice] : -1);
+
+    // Probe getAACCapabilityInteger with common index arguments (0, 1, 2, etc.)
+    if ([self respondsToSelector:@selector(getAACCapabilityInteger:)]) {
+        for (NSInteger i = 0; i < 5; i++) {
+            @try {
+                NSInteger capVal = [self getAACCapabilityInteger:i];
+                BTCodec_Log(@"  getAACCapabilityInteger(%ld) -> %ld", (long)i, (long)capVal);
+            } @catch (NSException *e) {
+                BTCodec_Log(@"  getAACCapabilityInteger(%ld) threw: %@", (long)i, e.reason);
+            }
+        }
+    }
+
+    if ([self respondsToSelector:@selector(getAACCapabilityBits)]) {
+        @try {
+            NSUInteger bits = [self getAACCapabilityBits];
+            BTCodec_Log(@"  getAACCapabilityBits -> %lu", (unsigned long)bits);
+        } @catch (NSException *e) {
+            BTCodec_Log(@"  getAACCapabilityBits threw: %@", e.reason);
+        }
+    }
 }
 
-- (void)setCodecType:(NSUInteger)type {
+// Also hook general connection or stream init if they fire
+- (void)connect {
     %orig;
-    BTCodec_Log(@"setCodecType: %lu", (unsigned long)type);
-}
-
-- (void)setA2DPCodec:(NSUInteger)type {
-    %orig;
-    BTCodec_Log(@"setA2DPCodec: %lu", (unsigned long)type);
-}
-
-- (void)setA2dpCodec:(NSUInteger)type {
-    %orig;
-    BTCodec_Log(@"setA2dpCodec: %lu", (unsigned long)type);
-}
-
-- (void)setNegotiatedCodec:(NSUInteger)type {
-    %orig;
-    BTCodec_Log(@"setNegotiatedCodec: %lu", (unsigned long)type);
-}
-
-- (void)setNegotiatedCodecType:(NSUInteger)type {
-    %orig;
-    BTCodec_Log(@"setNegotiatedCodecType: %lu", (unsigned long)type);
-}
-
-- (void)setCodec:(NSUInteger)type {
-    %orig;
-    BTCodec_Log(@"setCodec: %lu", (unsigned long)type);
+    BTCodec_Log(@"[BluetoothDevice] connect fired for name: %@ (%@)", 
+                [self respondsToSelector:@selector(name)] ? [self name] : @"nil",
+                [self respondsToSelector:@selector(address)] ? [self address] : @"nil");
 }
 
 %end
 
-// ── Constructor ───────────────────────────────────────────────────────────────
+// ── Constructor ────────────────────────────────________________───────────────
 
 %ctor {
     BTCodec_LogToFile("Constructor entered (pid %d)", getpid());
@@ -183,12 +121,7 @@ static void BTCodec_DumpInterestingMethods(Class cls) {
         return;
     }
 
-    BTCodec_LogToFile("bluetoothd matched — dylib loaded successfully");
-
-    BTCodec_DumpInterestingMethods(objc_getClass("BTDevice"));
-    BTCodec_DumpInterestingMethods(objc_getClass("BluetoothDevice"));
-    BTCodec_DumpInterestingMethods(objc_getClass("BTAudioDevice"));
-    BTCodec_DumpInterestingMethods(objc_getClass("BTClassicDevice"));
+    BTCodec_LogToFile("bluetoothd matched — BluetoothDevice hook loaded successfully");
 }
 
 %dtor {
