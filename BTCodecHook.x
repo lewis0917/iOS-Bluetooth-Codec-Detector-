@@ -1,5 +1,5 @@
 // BTCodecHook.x
-// Injected into bluetoothd via BTCodecDaemon.plist
+// Discovery version – injected into bluetoothd
 
 #import <Foundation/Foundation.h>
 #import <objc/runtime.h>
@@ -11,6 +11,8 @@
 #include <stdio.h>
 #include <time.h>
 #include <stdarg.h>
+#include <string.h>
+#include <ctype.h>
 
 #import "BTCodecCommon.h"
 
@@ -45,7 +47,6 @@ static void BTCodec_Log(NSString *format, ...) {
     va_start(args, format);
     NSString *msg = [[NSString alloc] initWithFormat:format arguments:args];
     va_end(args);
-
     BTCodec_LogToFile("%s", msg.UTF8String);
 }
 
@@ -76,7 +77,58 @@ static void BTCodec_PostIfChanged(BTCodecID codecID, uint32_t bitrate_kbps) {
                 BTCodecIDDescription(codecID), codecID, bitrate_kbps);
 }
 
-// ── Interface Definition ──────────────────────────────────────────────────────
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+static BOOL BTCodec_SelectorLooksInteresting(const char *name) {
+    if (!name) return NO;
+
+    // Convert to lowercase for matching
+    char lower[256];
+    size_t len = strlen(name);
+    if (len >= sizeof(lower)) len = sizeof(lower) - 1;
+    for (size_t i = 0; i < len; i++) {
+        lower[i] = (char)tolower((unsigned char)name[i]);
+    }
+    lower[len] = '\0';
+
+    const char *keywords[] = {
+        "codec", "a2dp", "avdtp", "bitrate", "bit rate", "audio",
+        "stream", "sbc", "aac", "mpeg", "atrac", "negotiate",
+        "configured", "configuration", "vendor", NULL
+    };
+
+    for (int i = 0; keywords[i]; i++) {
+        if (strstr(lower, keywords[i])) return YES;
+    }
+    return NO;
+}
+
+static void BTCodec_DumpInterestingMethods(Class cls) {
+    if (!cls) {
+        BTCodec_LogToFile("BTDevice class not found");
+        return;
+    }
+
+    BTCodec_LogToFile("--- Dumping interesting methods on %s ---", class_getName(cls));
+
+    unsigned int count = 0;
+    Method *methods = class_copyMethodList(cls, &count);
+
+    int found = 0;
+    for (unsigned int i = 0; i < count; i++) {
+        SEL sel = method_getName(methods[i]);
+        const char *name = sel_getName(sel);
+        if (BTCodec_SelectorLooksInteresting(name)) {
+            BTCodec_LogToFile("  %s", name);
+            found++;
+        }
+    }
+
+    free(methods);
+    BTCodec_LogToFile("--- Found %d interesting methods ---", found);
+}
+
+// ── Interface ─────────────────────────────────────────────────────────────────
 
 @interface BTDevice : NSObject
 @property (nonatomic, readonly, copy) NSString *address;
@@ -85,79 +137,45 @@ static void BTCodec_PostIfChanged(BTCodecID codecID, uint32_t bitrate_kbps) {
 @property (nonatomic, assign) NSUInteger a2dpNegotiatedBitrate;
 @end
 
-// ── Layer 1: ObjC hook — BTDevice ─────────────────────────────────────────────
+// ── Hooks ─────────────────────────────────────────────────────────────────────
 
 %hook BTDevice
 
+// Original target
 - (void)setA2dpCodecType:(NSUInteger)codecType {
     %orig;
+    BTCodec_Log(@"!!! setA2dpCodecType: fired → %lu", (unsigned long)codecType);
+}
 
-    BTCodec_Log(@"=== setA2dpCodecType: %lu ===", (unsigned long)codecType);
-    BTCodec_Log(@"  self     = %p", self);
-    BTCodec_Log(@"  address  = %@", [self respondsToSelector:@selector(address)] ? [self address] : @"n/a");
-    BTCodec_Log(@"  name     = %@", [self respondsToSelector:@selector(name)]    ? [self name]    : @"n/a");
+// Common alternative names
+- (void)setCodecType:(NSUInteger)type {
+    %orig;
+    BTCodec_Log(@"setCodecType: %lu", (unsigned long)type);
+}
 
-    // ── Diagnostic: probe common bitrate-related selectors ───────────────────
-    NSArray *bitrateSelectors = @[
-        @"a2dpNegotiatedBitrate",
-        @"negotiatedBitrate",
-        @"bitrate",
-        @"a2dpBitrate",
-        @"codecBitrate",
-        @"maxBitrate",
-        @"vbrMaxBitrate",
-        @"a2dpCodecBitrate",
-        @"negotiatedA2DPBitrate"
-    ];
+- (void)setA2DPCodec:(NSUInteger)type {
+    %orig;
+    BTCodec_Log(@"setA2DPCodec: %lu", (unsigned long)type);
+}
 
-    for (NSString *selName in bitrateSelectors) {
-        SEL sel = NSSelectorFromString(selName);
-        if ([self respondsToSelector:sel]) {
-            BTCodec_Log(@"  selector '%@' exists", selName);
-            @try {
-                NSUInteger val = ((NSUInteger (*)(id, SEL))objc_msgSend)(self, sel);
-                BTCodec_Log(@"    → value: %lu", (unsigned long)val);
-            } @catch (NSException *e) {
-                BTCodec_Log(@"    → call failed: %@", e.reason ?: @"unknown");
-            }
-        }
-    }
+- (void)setA2dpCodec:(NSUInteger)type {
+    %orig;
+    BTCodec_Log(@"setA2dpCodec: %lu", (unsigned long)type);
+}
 
-    // ── Map incoming codecType to our BTCodecID ──────────────────────────────
-    BTCodecID codecID = BTCodecID_Unknown;
-    switch (codecType) {
-        case 0:
-        case 1:
-            codecID = BTCodecID_SBC;
-            break;
-        case 2:
-        case 4:
-            codecID = BTCodecID_AAC;
-            break;
-        case 8:
-            codecID = BTCodecID_ATRAC;
-            break;
-        case 255:
-            codecID = BTCodecID_VendorExt;
-            break;
-        default:
-            codecID = BTCodecID_Unknown;
-            BTCodec_Log(@"  Unknown codecType raw value: %lu", (unsigned long)codecType);
-            break;
-    }
+- (void)setNegotiatedCodec:(NSUInteger)type {
+    %orig;
+    BTCodec_Log(@"setNegotiatedCodec: %lu", (unsigned long)type);
+}
 
-    // ── Bitrate extraction ───────────────────────────────────────────────────
-    uint32_t bitrate = 0;
-    if ([self respondsToSelector:@selector(a2dpNegotiatedBitrate)]) {
-        bitrate = (uint32_t)[self a2dpNegotiatedBitrate];
-    }
+- (void)setNegotiatedCodecType:(NSUInteger)type {
+    %orig;
+    BTCodec_Log(@"setNegotiatedCodecType: %lu", (unsigned long)type);
+}
 
-    if (codecID == BTCodecID_AAC && bitrate == 0) {
-        bitrate = 256;
-        BTCodec_Log(@"  Using AAC fallback bitrate 256 kbps");
-    }
-
-    BTCodec_PostIfChanged(codecID, bitrate);
+- (void)setCodec:(NSUInteger)type {
+    %orig;
+    BTCodec_Log(@"setCodec: %lu", (unsigned long)type);
 }
 
 %end
@@ -183,6 +201,15 @@ static void BTCodec_PostIfChanged(BTCodecID codecID, uint32_t bitrate_kbps) {
     }
 
     BTCodec_LogToFile("bluetoothd matched — dylib loaded successfully");
+
+    // Discovery: dump interesting methods on BTDevice
+    Class btDeviceClass = objc_getClass("BTDevice");
+    BTCodec_DumpInterestingMethods(btDeviceClass);
+
+    // Also try a couple of other classes that sometimes appear
+    BTCodec_DumpInterestingMethods(objc_getClass("BluetoothDevice"));
+    BTCodec_DumpInterestingMethods(objc_getClass("BTAudioDevice"));
+    BTCodec_DumpInterestingMethods(objc_getClass("BTClassicDevice"));
 }
 
 %dtor {
