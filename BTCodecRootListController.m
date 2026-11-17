@@ -194,13 +194,13 @@ static NSString *const kPrefsChanged = @"com.btcodectweak.prefschanged";
 // ── Darwin notify state read ───────────────────────────────────────────────────
 
 - (uint64_t)_readLiveState {
-    int token = NOTIFY_TOKEN_INVALID;
-    if (notify_register_check(kBTCodecNotifName, &token) != NOTIFY_STATUS_OK) {
-        return 0;
+    if (_codecNotifyToken == NOTIFY_TOKEN_INVALID) {
+        notify_register_check(kBTCodecNotifName, &_codecNotifyToken);
     }
     uint64_t state = 0;
-    notify_get_state(token, &state);
-    notify_cancel(token);
+    if (_codecNotifyToken != NOTIFY_TOKEN_INVALID) {
+        notify_get_state(_codecNotifyToken, &state);
+    }
     return state;
 }
 
