@@ -18,10 +18,13 @@ BTCodecDaemon_LDFLAGS                  = -Wl,-undefined,dynamic_lookup \
 BTCodecDaemon_INSTALL_TARGET_PROCESSES = bluetoothd
 BTCodecDaemon_FRAMEWORKS               = Foundation CoreFoundation
 
-# ── 2. SpringBoard UI dylib → SpringBoard ─────────────────────────────────────
-TWEAK_NAME += BTCodecSB
+include $(THEOS)/makefiles/tweak.mk
 
-BTCodecSB_FILES                    = Tweak.x
+# ── 2. SpringBoard UI dylib → SpringBoard ─────────────────────────────────────
+include $(THEOS)/makefiles/common.mk
+TWEAK_NAME = BTCodecSB
+
+BTCodecSB_FILES                    = BTCodecSB.x
 BTCodecSB_CFLAGS                   = -fobjc-arc \
                                      -fvisibility=hidden \
                                      -I$(THEOS_PROJECT_DIR)
