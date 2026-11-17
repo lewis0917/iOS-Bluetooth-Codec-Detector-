@@ -1,6 +1,3 @@
-That explains it. Remember the log output from earlier? When we looked for BTDevice, it logged "Class not found". That means BTDevice isn't a registered Objective-C class name in iOS 18's bluetoothd, so our hook for setA2dpCodecType: was never actually attaching to anything. When we switched the hook to BluetoothDevice, BluetoothDevice loaded successfully, but it doesn't have a setA2dpCodecType: method, so playing audio didn't trigger it.
-To find the exact class names Apple is using for audio and codecs in iOS 18, we can write a quick Class Discovery pass into the constructor. This will scan all runtime classes and log any class name containing keywords like Audio, Codec, Stream, A2DP, or Device.
-Here is the updated discovery hook code:
 // BTCodecHook.x
 // Class & Method Discovery for iOS 18 bluetoothd
 
@@ -42,14 +39,6 @@ static void BTCodec_LogToFile(const char *fmt, ...) {
 
     fputc('\n', f);
     fclose(f);
-}
-
-static void BTCodec_Log(NSString *format, ...) {
-    va_list args;
-    va_start(args, format);
-    NSString *msg = [[NSString alloc] initWithFormat:format arguments:args];
-    va_end(args);
-    BTCodec_LogToFile("%s", msg.UTF8String);
 }
 
 // Dump all runtime classes matching keywords
@@ -109,11 +98,3 @@ static void BTCodec_DumpMatchingClasses(void) {
         sStateToken = NOTIFY_TOKEN_INVALID;
     }
 }
-
-Next Steps
- * Build and install this discovery version.
- * Cycle the daemon (Airplane Mode toggle or restart).
- * Check the log file:
-   cat /var/tmp/btcodec_debug.txt
-
-This will output every single class name in bluetoothd related to audio, codecs, A2DP, and devices on iOS 18 so we can target the exact right class.
