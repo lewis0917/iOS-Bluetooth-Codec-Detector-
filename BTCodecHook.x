@@ -21,7 +21,7 @@ static void BTCodec_LogToFile(NSString *format, ...) {
     va_end(args);
 
     NSString *line = [NSString stringWithFormat:@"[%@] %@\n", [NSDate date], msg];
-    NSString *path = @"/var/mobile/btcodec_debug.txt";
+    NSString *path = @"/var/tmp/btcodec_debug.txt";
     
     NSFileHandle *fileHandle = [NSFileHandle fileHandleForWritingAtPath:path];
     if (fileHandle) {
@@ -87,10 +87,11 @@ static void BTCodec_PostIfChanged(BTCodecID codecID, uint32_t bitrate_kbps) {
 
 %ctor {
     NSString *procName = [NSProcessInfo processInfo].processName;
+    BTCodec_LogToFile(@"Constructor fired for process: %@", procName);
+    
     if (![procName isEqualToString:@"bluetoothd"]) return;
 
-    BTCodec_LogToFile(@"Loading — pid %d", getpid());
-    BTCodec_LogToFile(@"Setup complete");
+    BTCodec_LogToFile(@"bluetoothd matched! Loading dylib successfully.");
 }
 
 %dtor {
