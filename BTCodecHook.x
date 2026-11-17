@@ -8,7 +8,6 @@
 #include <dlfcn.h>
 #include <notify.h>
 #include <os/log.h>
-#include <pthread.h>
 #include <unistd.h>
 
 #import "BTCodecCommon.h"
@@ -16,9 +15,6 @@
 static os_log_t       sLog            = NULL;
 static int            sStateToken     = NOTIFY_TOKEN_INVALID;
 static BTCodecID      sCurrentCodecID = BTCodecID_Unknown;
-
-static pthread_t      sLogThread;
-static _Atomic(bool)  sLogThreadRunning = false;
 
 static void BTCodec_PostIfChanged(BTCodecID codecID, uint32_t bitrate_kbps) {
     if (codecID == sCurrentCodecID) return;
@@ -32,6 +28,43 @@ static void BTCodec_PostIfChanged(BTCodecID codecID, uint32_t bitrate_kbps) {
     notify_set_state(sStateToken, state);
     notify_post(kBTCodecNotifName);
 }
+
+// ── Private BluetoothManager.framework stubs ──────────────────────────────────
+
+@interface BTDevice : NSObject
+@property (nonatomic, readonly, copy) NSString *address;
+@property (nonatomic, readonly, copy) NSString *name;
+@property (nonatomic, assign) NSUInteger a2dpCodecType;
+@property (nonatomic, assign) NSUInteger a2dpNegotiatedBitrate;
+@end
+
+// ── Layer 1: ObjC hook — BTDevice ─────────────────────────────────────────────
+
+%hook BTDevice
+
+- (void)setA2dpCodecType:(NSUInteger)codecType {
+    %orig;
+
+    os_log(sLog, "[BTCodecDaemon] setA2dpCodecType fired: %lu", (unsigned long)codecType);
+
+    BTCodecID codecID = (codecType == BTCodecID_SBC    ||
+                         codecType == BTCodecID_MPEG12  ||
+                         codecType == BTCodecID_AAC    ||
+                         codecType == BTCodecID_ATRAC  ||
+                         codecType == BTCodecID_VendorExt)
+                      ? (BTCodecID)(uint8_t)codecType
+                      : BTCodecID_Unknown;
+
+    uint32_t bitrate = 0;
+    if ([self respondsToSelector:@selector(a2dpNegotiatedBitrate)]) {
+        bitrate = (uint32_t)[self a2dpNegotiatedBitrate];
+    }
+    if (codecID == BTCodecID_AAC && bitrate == 0) bitrate = 256;
+
+    BTCodec_PostIfChanged(codecID, bitrate);
+}
+
+%end
 
 // ── Diagnostic: runtime class + selector dump to /tmp/ ────────────────────────
 
@@ -83,7 +116,6 @@ static void BTCodec_DumpClasses(void) {
             [out appendString:@"No BT/codec methods found in bluetoothd process\n"];
         }
 
-        // Write directly to /tmp/ where bluetoothd has sandbox write access
         NSString *path = @"/tmp/btd_classes.txt";
         NSError *err = nil;
         BOOL ok = [out writeToFile:path
@@ -97,6 +129,8 @@ static void BTCodec_DumpClasses(void) {
     });
 }
 
+// ── Constructor ────────────────────────────────────────────────────────────────
+
 %ctor {
     NSString *procName = [NSProcessInfo processInfo].processName;
     if (![procName isEqualToString:@"bluetoothd"]) return;
@@ -104,8 +138,14 @@ static void BTCodec_DumpClasses(void) {
     sLog = os_log_create("com.btcodectweak", "daemon");
     os_log(sLog, "[BTCodecDaemon] Loading — pid %d", getpid());
 
-    // Trigger diagnostic dump
     BTCodec_DumpClasses();
 
     os_log(sLog, "[BTCodecDaemon] Setup complete");
+}
+
+%dtor {
+    if (sStateToken != NOTIFY_TOKEN_INVALID) {
+        notify_cancel(sStateToken);
+        sStateToken = NOTIFY_TOKEN_INVALID;
+    }
 }
