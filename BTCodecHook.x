@@ -29,6 +29,15 @@ static void BTCodec_PostIfChanged(BTCodecID codecID, uint32_t bitrate_kbps) {
     notify_post(kBTCodecNotifName);
 }
 
+// ── Full Interface Definition (Replaces forward declaration) ──────────────────
+
+@interface BTDevice : NSObject
+@property (nonatomic, readonly, copy) NSString *address;
+@property (nonatomic, readonly, copy) NSString *name;
+@property (nonatomic, assign) NSUInteger a2dpCodecType;
+@property (nonatomic, assign) NSUInteger a2dpNegotiatedBitrate;
+@end
+
 // ── Layer 1: ObjC hook — BTDevice ─────────────────────────────────────────────
 
 %hook BTDevice
