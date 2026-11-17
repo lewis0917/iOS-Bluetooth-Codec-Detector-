@@ -29,15 +29,6 @@ static void BTCodec_PostIfChanged(BTCodecID codecID, uint32_t bitrate_kbps) {
     notify_post(kBTCodecNotifName);
 }
 
-// ── Private BluetoothManager.framework stubs ──────────────────────────────────
-
-@interface BTDevice : NSObject
-@property (nonatomic, readonly, copy) NSString *address;
-@property (nonatomic, readonly, copy) NSString *name;
-@property (nonatomic, assign) NSUInteger a2dpCodecType;
-@property (nonatomic, assign) NSUInteger a2dpNegotiatedBitrate;
-@end
-
 // ── Layer 1: ObjC hook — BTDevice ─────────────────────────────────────────────
 
 %hook BTDevice
@@ -66,18 +57,18 @@ static void BTCodec_PostIfChanged(BTCodecID codecID, uint32_t bitrate_kbps) {
 
 %end
 
-// ── Diagnostic: runtime class + selector dump to /tmp/ ────────────────────────
+// ── Diagnostic: stream class + selector dump directly to os_log ───────────────
 
-static void BTCodec_DumpClasses(void) {
+static void BTCodec_DumpClassesToLog(void) {
     dispatch_after(
-        dispatch_time(DISPATCH_TIME_NOW, (int64_t)(5.0 * NSEC_PER_SEC)),
+        dispatch_time(DISPATCH_TIME_NOW, (int64_t)(3.0 * NSEC_PER_SEC)),
         dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
-
-        NSMutableString *out = [NSMutableString string];
 
         int numClasses = objc_getClassList(NULL, 0);
         Class *classes = (__unsafe_unretained Class *)malloc(sizeof(Class) * numClasses);
         objc_getClassList(classes, numClasses);
+
+        os_log(sLog, "[BTCodecDaemon] ── START CLASS DUMP ──");
 
         for (int i = 0; i < numClasses; i++) {
             NSString *name = NSStringFromClass(classes[i]);
@@ -89,7 +80,6 @@ static void BTCodec_DumpClasses(void) {
                              [lower containsString:@"avdtp"];
             if (!btRelated) continue;
 
-            NSMutableString *section = [NSMutableString string];
             unsigned int count = 0;
             Method *methods = class_copyMethodList(classes[i], &count);
             for (unsigned int j = 0; j < count; j++) {
@@ -101,31 +91,13 @@ static void BTCodec_DumpClasses(void) {
                     [selLower containsString:@"format"]  ||
                     [selLower containsString:@"stream"]  ||
                     [selLower containsString:@"audio"]) {
-                    [section appendFormat:@"  %@\n", sel];
+                    os_log(sLog, "[BTCodecDaemon] %{public}@ -> %{public}@", name, sel);
                 }
             }
             if (count > 0) free(methods);
-
-            if (section.length > 0) {
-                [out appendFormat:@"\n=== %@ ===\n%@", name, section];
-            }
         }
         free(classes);
-
-        if (out.length == 0) {
-            [out appendString:@"No BT/codec methods found in bluetoothd process\n"];
-        }
-
-        NSString *path = @"/tmp/btd_classes.txt";
-        NSError *err = nil;
-        BOOL ok = [out writeToFile:path
-                        atomically:YES
-                          encoding:NSUTF8StringEncoding
-                             error:&err];
-        
-        if (sLog) {
-            os_log(sLog, "[BTCodecDaemon] class dump written to /tmp/: %d (%@)", ok, err);
-        }
+        os_log(sLog, "[BTCodecDaemon] ── END CLASS DUMP ──");
     });
 }
 
@@ -138,7 +110,7 @@ static void BTCodec_DumpClasses(void) {
     sLog = os_log_create("com.btcodectweak", "daemon");
     os_log(sLog, "[BTCodecDaemon] Loading — pid %d", getpid());
 
-    BTCodec_DumpClasses();
+    BTCodec_DumpClassesToLog();
 
     os_log(sLog, "[BTCodecDaemon] Setup complete");
 }
