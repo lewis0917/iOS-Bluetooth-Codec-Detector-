@@ -10,9 +10,8 @@
 #include <unistd.h>
 #include <stdio.h>
 #include <time.h>
-#include <stdarg.h>
-#include <string.h>
 #include <ctype.h>
+#include <string.h>
 
 #import "BTCodecCommon.h"
 
@@ -50,17 +49,7 @@ static void BTCodec_Log(NSString *format, ...) {
     BTCodec_LogToFile("%s", msg.UTF8String);
 }
 
-static const char *BTCodecIDDescription(BTCodecID codecID) {
-    switch (codecID) {
-        case BTCodecID_SBC:       return "SBC";
-        case BTCodecID_MPEG12:    return "MPEG-1/2";
-        case BTCodecID_AAC:       return "AAC";
-        case BTCodecID_ATRAC:     return "ATRAC";
-        case BTCodecID_VendorExt: return "Vendor";
-        default:                  return "Unknown";
-    }
-}
-
+__attribute__((unused))
 static void BTCodec_PostIfChanged(BTCodecID codecID, uint32_t bitrate_kbps) {
     if (codecID == sCurrentCodecID) return;
     sCurrentCodecID = codecID;
@@ -72,9 +61,6 @@ static void BTCodec_PostIfChanged(BTCodecID codecID, uint32_t bitrate_kbps) {
     uint64_t state = BTCodecMakeState(codecID, bitrate_kbps);
     notify_set_state(sStateToken, state);
     notify_post(kBTCodecNotifName);
-
-    BTCodec_Log(@"Posted state → codec=%s (%u), bitrate=%u kbps",
-                BTCodecIDDescription(codecID), codecID, bitrate_kbps);
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -82,7 +68,6 @@ static void BTCodec_PostIfChanged(BTCodecID codecID, uint32_t bitrate_kbps) {
 static BOOL BTCodec_SelectorLooksInteresting(const char *name) {
     if (!name) return NO;
 
-    // Convert to lowercase for matching
     char lower[256];
     size_t len = strlen(name);
     if (len >= sizeof(lower)) len = sizeof(lower) - 1;
@@ -105,7 +90,7 @@ static BOOL BTCodec_SelectorLooksInteresting(const char *name) {
 
 static void BTCodec_DumpInterestingMethods(Class cls) {
     if (!cls) {
-        BTCodec_LogToFile("BTDevice class not found");
+        BTCodec_LogToFile("Class not found");
         return;
     }
 
@@ -141,13 +126,11 @@ static void BTCodec_DumpInterestingMethods(Class cls) {
 
 %hook BTDevice
 
-// Original target
 - (void)setA2dpCodecType:(NSUInteger)codecType {
     %orig;
     BTCodec_Log(@"!!! setA2dpCodecType: fired → %lu", (unsigned long)codecType);
 }
 
-// Common alternative names
 - (void)setCodecType:(NSUInteger)type {
     %orig;
     BTCodec_Log(@"setCodecType: %lu", (unsigned long)type);
@@ -202,11 +185,7 @@ static void BTCodec_DumpInterestingMethods(Class cls) {
 
     BTCodec_LogToFile("bluetoothd matched — dylib loaded successfully");
 
-    // Discovery: dump interesting methods on BTDevice
-    Class btDeviceClass = objc_getClass("BTDevice");
-    BTCodec_DumpInterestingMethods(btDeviceClass);
-
-    // Also try a couple of other classes that sometimes appear
+    BTCodec_DumpInterestingMethods(objc_getClass("BTDevice"));
     BTCodec_DumpInterestingMethods(objc_getClass("BluetoothDevice"));
     BTCodec_DumpInterestingMethods(objc_getClass("BTAudioDevice"));
     BTCodec_DumpInterestingMethods(objc_getClass("BTClassicDevice"));
