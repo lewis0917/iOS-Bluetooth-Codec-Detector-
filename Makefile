@@ -9,7 +9,7 @@ include $(THEOS)/makefiles/common.mk
 # ── 1. Daemon dylib → bluetoothd ──────────────────────────────────────────────
 TWEAK_NAME = BTCodecDaemon
 
-BTCodecDaemon_FILES                    = BTCodecHook.x
+BTCodecDaemon_FILES                    = Tweak.x
 BTCodecDaemon_CFLAGS                   = -fobjc-arc \
                                          -fvisibility=hidden \
                                          -I$(THEOS_PROJECT_DIR)
