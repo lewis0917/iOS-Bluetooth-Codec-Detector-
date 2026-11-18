@@ -7,7 +7,6 @@ LOGOS_DEFAULT_GENERATOR = internal
 include $(THEOS)/makefiles/common.mk
 
 # ── 1. Daemon dylib → bluetoothd ──────────────────────────────────────────────
-# ── 1. Daemon dylib → bluetoothd ──────────────────────────────────────────────
 TWEAK_NAME = BTCodecDaemon
 
 BTCodecDaemon_FILES                    = BTCodecHook.x
