@@ -29,7 +29,17 @@ static void BTCodec_FileLog(const char *fmt, ...) {
     vfprintf(f, fmt, args);
     va_end(args);
     fputc('\n', f);
+    fflush(f);
     fclose(f);
+}
+
+// Normalize raw bitrate — CBAudioLinkQualityInfo.bitRate appears to be bps.
+// Values > 1000 are assumed bps and converted; values <= 1000 are already kbps.
+// No A2DP codec exceeds 1000 kbps, so this heuristic is reliable.
+static uint32_t BTCodec_NormalizeBitrate(NSInteger raw, BTCodecID codecID) {
+    if (raw > 1000) return (uint32_t)(raw / 1000);
+    if (raw > 0)    return (uint32_t)raw;
+    return (codecID == BTCodecID_AAC) ? 256 : 328;
 }
 
 static void BTCodec_PostIfChanged(BTCodecID codecID, uint32_t bitrate) {
@@ -42,33 +52,9 @@ static void BTCodec_PostIfChanged(BTCodecID codecID, uint32_t bitrate) {
     }
     notify_set_state(sStateToken, BTCodecMakeState(codecID, bitrate));
     notify_post(kBTCodecNotifName);
-    BTCodec_FileLog("Posted codec=%d bitrate=%u", (int)codecID, bitrate);
+    BTCodec_FileLog("Posted codec=%d bitrate=%u kbps", (int)codecID, bitrate);
 }
 
-static void BTCodec_DumpMatchingClasses(void) {
-    int numClasses = objc_getClassList(NULL, 0);
-    if (numClasses <= 0) return;
-    
-    Class *classes = (Class *)malloc(sizeof(Class) * numClasses);
-    numClasses = objc_getClassList(classes, numClasses);
-    
-    BTCodec_FileLog("=== SCANNING FOR IOS 18 AUDIO CLASSES ===");
-    for (int i = 0; i < numClasses; i++) {
-        const char *className = class_getName(classes[i]);
-        NSString *name = [NSString stringWithUTF8String:className];
-        
-        if ([name rangeOfString:@"Audio" options:NSCaseInsensitiveSearch].location != NSNotFound ||
-            [name rangeOfString:@"Codec" options:NSCaseInsensitiveSearch].location != NSNotFound ||
-            [name rangeOfString:@"Stream" options:NSCaseInsensitiveSearch].location != NSNotFound ||
-            [name rangeOfString:@"Link" options:NSCaseInsensitiveSearch].location != NSNotFound) {
-            BTCodec_FileLog("Found matching class: %s", className);
-        }
-    }
-    BTCodec_FileLog("=== END SCAN ===");
-    free(classes);
-}
-
-// CBAudioLinkQualityInfo interface stubs
 @interface CBAudioLinkQualityInfo : NSObject
 @property (nonatomic, assign) NSInteger codecType;
 @property (nonatomic, assign) NSInteger bitRate;
@@ -76,94 +62,54 @@ static void BTCodec_DumpMatchingClasses(void) {
 
 %hook CBAudioLinkQualityInfo
 
-- (id)init {
-    id orig = %orig;
-    BTCodec_FileLog("CBAudioLinkQualityInfo init called");
-    return orig;
-}
-
-- (NSInteger)codecType {
-    NSInteger origCodec = %orig;
-    BTCodecID codecID;
-    switch (origCodec) {
-        case 0:  codecID = BTCodecID_SBC; break;
-        case 2:  
-        case 10: codecID = BTCodecID_AAC; break;
-        default: codecID = BTCodecID_Unknown; break;
-    }
-
-    if (codecID != BTCodecID_Unknown) {
-        NSInteger rawBitrate = [self respondsToSelector:@selector(bitRate)] ? [self bitRate] : 0;
-        uint32_t bitrate = (rawBitrate > 0) ? (uint32_t)rawBitrate : 327000;
-        BTCodec_PostIfChanged(codecID, bitrate);
-    }
-    
-    return origCodec;
-}
+// Setter-only hooks — no getter hook.
+// The getter fires on every property read and causes constant spurious posts.
+// Setters fire exactly when the codec is negotiated.
 
 - (void)setCodecType:(NSInteger)newCodecType {
-    BTCodec_FileLog("CBAudioLinkQualityInfo setCodecType fired with: %ld  bitRate: %ld",
+    %orig;
+    BTCodec_FileLog("setCodecType: %ld  bitRate: %ld",
                     (long)newCodecType,
                     (long)([self respondsToSelector:@selector(bitRate)] ? [self bitRate] : -1));
-    %orig;
 
     BTCodecID codecID;
     switch (newCodecType) {
         case 0:  codecID = BTCodecID_SBC; break;
-        case 2:  
+        case 2:
         case 10: codecID = BTCodecID_AAC; break;
-        default: return;
+        default:
+            BTCodec_FileLog("  → unknown codecType %ld", (long)newCodecType);
+            return;
     }
 
-    NSInteger rawBitrate = [self respondsToSelector:@selector(bitRate)] ? [self bitRate] : 0;
-    uint32_t bitrate = (rawBitrate > 0) ? (uint32_t)rawBitrate : (codecID == BTCodecID_AAC ? 327000 : 212000);
-
-    BTCodec_PostIfChanged(codecID, bitrate);
+    NSInteger raw = [self respondsToSelector:@selector(bitRate)] ? [self bitRate] : 0;
+    BTCodec_PostIfChanged(codecID, BTCodec_NormalizeBitrate(raw, codecID));
 }
 
 - (void)setBitRate:(NSInteger)newBitRate {
-    BTCodec_FileLog("CBAudioLinkQualityInfo setBitRate fired with: %ld", (long)newBitRate);
     %orig;
+    BTCodec_FileLog("setBitRate: %ld", (long)newBitRate);
 
-    if (newBitRate > 0) {
-        NSInteger currentCodec = [self respondsToSelector:@selector(codecType)] ? [self codecType] : 10;
-        BTCodecID codecID;
-        switch (currentCodec) {
-            case 0:  codecID = BTCodecID_SBC; break;
-            case 2:  
-            case 10: codecID = BTCodecID_AAC; break;
-            default: codecID = BTCodecID_AAC; break;
-        }
-        BTCodec_PostIfChanged(codecID, (uint32_t)newBitRate);
+    if (newBitRate <= 0) return;
+
+    // Read codecType directly — no getter hook, safe to call.
+    NSInteger rawCodec = [self respondsToSelector:@selector(codecType)] ? [self codecType] : -1;
+    BTCodecID codecID;
+    switch (rawCodec) {
+        case 0:  codecID = BTCodecID_SBC; break;
+        case 2:
+        case 10: codecID = BTCodecID_AAC; break;
+        default: return;  // unknown codec, don't post
     }
-}
 
-%end
-
-// BTAudioSession hooks to track stream routing lifecycle
-%hook BTAudioSession
-
-- (void)activateWithCompletion:(id)completion {
-    BTCodec_FileLog("BTAudioSession activateWithCompletion called");
-    %orig;
-}
-
-- (void)setCategory:(NSString *)category {
-    BTCodec_FileLog("BTAudioSession setCategory: %@", category);
-    %orig;
-}
-
-- (void)setMode:(NSString *)mode {
-    BTCodec_FileLog("BTAudioSession setMode: %@", mode);
-    %orig;
+    BTCodec_PostIfChanged(codecID, BTCodec_NormalizeBitrate(newBitRate, codecID));
 }
 
 %end
 
 %ctor {
     if (![NSProcessInfo.processInfo.processName isEqualToString:@"bluetoothd"]) return;
-    BTCodec_FileLog("BTCodecDaemon loaded in bluetoothd (pid %d)", getpid());
-    BTCodec_DumpMatchingClasses();
+    BTCodec_FileLog("BTCodecDaemon loaded (pid %d)", getpid());
 }
 
 %dtor {
