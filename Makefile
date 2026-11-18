@@ -7,9 +7,10 @@ LOGOS_DEFAULT_GENERATOR = internal
 include $(THEOS)/makefiles/common.mk
 
 # ── 1. Daemon dylib → bluetoothd ──────────────────────────────────────────────
+# ── 1. Daemon dylib → bluetoothd ──────────────────────────────────────────────
 TWEAK_NAME = BTCodecDaemon
 
-BTCodecDaemon_FILES                    = BTCodecSB.x
+BTCodecDaemon_FILES                    = BTCodecHook.x
 BTCodecDaemon_CFLAGS                   = -fobjc-arc \
                                          -fvisibility=hidden \
                                          -I$(THEOS_PROJECT_DIR)
@@ -17,6 +18,8 @@ BTCodecDaemon_LDFLAGS                  = -Wl,-undefined,dynamic_lookup \
                                          -Wl,-dead_strip
 BTCodecDaemon_INSTALL_TARGET_PROCESSES = bluetoothd
 BTCodecDaemon_FRAMEWORKS               = Foundation CoreFoundation
+
+include $(THEOS)/makefiles/tweak.mk
 
 include $(THEOS)/makefiles/tweak.mk
 
