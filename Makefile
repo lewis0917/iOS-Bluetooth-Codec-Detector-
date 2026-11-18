@@ -16,7 +16,6 @@ BTCodecDaemon_CFLAGS                   = -fobjc-arc \
                                          -I$(THEOS_PROJECT_DIR)
 BTCodecDaemon_LDFLAGS                  = -Wl,-undefined,dynamic_lookup \
                                          -Wl,-dead_strip
-BTCodecDaemon_INSTALL_TARGET_PROCESSES = bluetoothd
 BTCodecDaemon_FRAMEWORKS               = Foundation CoreFoundation
 
 include $(THEOS)/makefiles/tweak.mk
