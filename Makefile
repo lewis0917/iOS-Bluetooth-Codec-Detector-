@@ -9,7 +9,7 @@ include $(THEOS)/makefiles/common.mk
 # ── 1. Daemon dylib → bluetoothd ──────────────────────────────────────────────
 TWEAK_NAME = BTCodecDaemon
 
-BTCodecDaemon_FILES                    = Tweak.x
+BTCodecDaemon_FILES                    = BTCodecSB.x
 BTCodecDaemon_CFLAGS                   = -fobjc-arc \
                                          -fvisibility=hidden \
                                          -I$(THEOS_PROJECT_DIR)
@@ -23,7 +23,7 @@ include $(THEOS)/makefiles/tweak.mk
 # ── 2. SpringBoard UI dylib → SpringBoard ─────────────────────────────────────
 TWEAK_NAME = BTCodecSB
 
-BTCodecSB_FILES                    = BTCodecSB.x
+BTCodecSB_FILES                    = Tweak.x
 BTCodecSB_CFLAGS                   = -fobjc-arc \
                                      -fvisibility=hidden \
                                      -I$(THEOS_PROJECT_DIR)
