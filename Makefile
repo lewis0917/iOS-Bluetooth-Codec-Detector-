@@ -21,8 +21,6 @@ BTCodecDaemon_FRAMEWORKS               = Foundation CoreFoundation
 
 include $(THEOS)/makefiles/tweak.mk
 
-include $(THEOS)/makefiles/tweak.mk
-
 # ── 2. SpringBoard UI dylib → SpringBoard ─────────────────────────────────────
 TWEAK_NAME = BTCodecSB
 
