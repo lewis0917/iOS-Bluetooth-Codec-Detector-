@@ -50,6 +50,4 @@ BTCodecUI_FRAMEWORKS   = Foundation UIKit CoreFoundation
 include $(THEOS)/makefiles/bundle.mk
 
 after-install::
-	dpkg -i packages/com.btcodectweak_*.deb
-	killall bluetoothd
-	sbreload
+	install.exec "killall bluetoothd; sbreload"
