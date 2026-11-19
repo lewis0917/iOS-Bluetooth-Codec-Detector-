@@ -121,10 +121,20 @@ static NSString *const kPrefsChanged = @"com.btcodectweak.prefschanged";
 
 - (void)viewWillAppear:(BOOL)animated {
     [super viewWillAppear:animated];
+    [self _registerNotificationListener];
+    [self _reloadStatusSpecifiers];
+}
 
+- (void)viewWillDisappear:(BOOL)animated {
+    [super viewWillDisappear:animated];
+    [self _unregisterNotificationListener];
+}
+
+// ── Notification Token Management ──────────────────────────────────────────────
+
+- (void)_registerNotificationListener {
     if (_codecNotifyToken != NOTIFY_TOKEN_INVALID) {
-        notify_cancel(_codecNotifyToken);
-        _codecNotifyToken = NOTIFY_TOKEN_INVALID;
+        [self _unregisterNotificationListener];
     }
 
     notify_register_dispatch(kBTCodecNotifName,
@@ -136,29 +146,24 @@ static NSString *const kPrefsChanged = @"com.btcodectweak.prefschanged";
                           duration:0.25
                            options:UIViewAnimationOptionTransitionCrossDissolve
                         animations:^{
-            if (self.codecStatusSpecifier) {
-                [self reloadSpecifier:self.codecStatusSpecifier];
-            }
-            if (self.bitrateStatusSpecifier) {
-                [self reloadSpecifier:self.bitrateStatusSpecifier];
-            }
+            [self _reloadStatusSpecifiers];
         } completion:nil];
     });
+}
 
-    // Refresh immediately upon opening the pane
+- (void)_unregisterNotificationListener {
+    if (_codecNotifyToken != NOTIFY_TOKEN_INVALID) {
+        notify_cancel(_codecNotifyToken);
+        _codecNotifyToken = NOTIFY_TOKEN_INVALID;
+    }
+}
+
+- (void)_reloadStatusSpecifiers {
     if (self.codecStatusSpecifier) {
         [self reloadSpecifier:self.codecStatusSpecifier];
     }
     if (self.bitrateStatusSpecifier) {
         [self reloadSpecifier:self.bitrateStatusSpecifier];
-    }
-}
-
-- (void)viewWillDisappear:(BOOL)animated {
-    [super viewWillDisappear:animated];
-    if (_codecNotifyToken != NOTIFY_TOKEN_INVALID) {
-        notify_cancel(_codecNotifyToken);
-        _codecNotifyToken = NOTIFY_TOKEN_INVALID;
     }
 }
 
@@ -195,6 +200,7 @@ static NSString *const kPrefsChanged = @"com.btcodectweak.prefschanged";
 
 - (uint64_t)_readLiveState {
     if (_codecNotifyToken == NOTIFY_TOKEN_INVALID) {
+        // Fallback registration if called outside viewWillAppear lifecycle
         notify_register_check(kBTCodecNotifName, &_codecNotifyToken);
     }
     uint64_t state = 0;
